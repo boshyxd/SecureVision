@@ -7,6 +7,7 @@ import os
 import dotenv
 import requests
 import re
+from webtech import WebTech
 
 dotenv.load_dotenv()
 SHODAN_API_KEY = os.getenv("SHODAN_API_KEY")
@@ -113,4 +114,14 @@ def detect_password_fields(url):
         print(f"Error: {e}")
         return False
 
+
+# https://github.com/ShielderSec/webtech
+def detect_with_webtech(url):
+    try:
+        # Properly initialize WebTech
+        webtech = WebTech(options={"timeout": 10})  # Set timeout explicitly
+        report = webtech.start_from_url(url)
+        return report
+    except Exception as e:
+        return f"Error: {e}"
 
