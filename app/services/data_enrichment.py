@@ -91,3 +91,43 @@ def check_captcha(url):
     else:
         return False
 
+
+def detect_password_fields(url):
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        input_fields = soup.find_all('input')
+
+        # Look for password fields
+        password_fields = []
+        for field in input_fields:
+            field_type = field.get('type', '').lower()
+            autocomplete = field.get('autocomplete', '').lower()
+            field_name = field.get('name', '').lower()
+            field_id = field.get('id', '').lower()
+            field_class = ' '.join(field.get('class', [])).lower()
+
+            if (
+                    field_type == 'password' or
+                    'password' in autocomplete or
+                    'password' in field_name or
+                    'password' in field_id or
+                    'password' in field_class
+            ):
+                password_fields.append(field)
+
+        if password_fields:
+            return True
+        else:
+            return False
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
+
+
+url = "https://www.facebook.com/login"
+print(detect_password_fields(url))
