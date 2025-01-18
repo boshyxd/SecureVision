@@ -14,11 +14,11 @@ async def search_breach_data(
     limit: int = Query(100, ge=1, le=1000)
 ):
     """Search breach data with filters"""
-    # TODO: Implement search functionality
+    # TODO: Implement search using breach_metadata field
     pass
 
 @router.get("/stats")
 async def get_search_stats(db: Session = Depends(get_db)):
     """Get search statistics"""
-    # TODO: Implement statistics gathering
+    # TODO: Implement statistics using breach_metadata field
     pass 
