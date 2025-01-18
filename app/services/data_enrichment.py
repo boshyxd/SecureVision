@@ -1,7 +1,7 @@
 import aiohttp
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
-# from app.models.database import SessionLocal, BreachEntry
+from app.models.database import SessionLocal, BreachEntry
 import shodan
 import os
 import dotenv
@@ -94,30 +94,15 @@ def check_captcha(url):
 
 def detect_password_fields(url):
     try:
-        response = requests.get(url)
+        # Fetch the webpage with timeout
+        response = requests.get(url, timeout=5)
         response.raise_for_status()
 
-        soup = BeautifulSoup(response.text, 'html.parser')
+        # Parse the HTML using a faster parser
+        soup = BeautifulSoup(response.text, 'lxml')
 
-        input_fields = soup.find_all('input')
-
-        # Look for password fields
-        password_fields = []
-        for field in input_fields:
-            field_type = field.get('type', '').lower()
-            autocomplete = field.get('autocomplete', '').lower()
-            field_name = field.get('name', '').lower()
-            field_id = field.get('id', '').lower()
-            field_class = ' '.join(field.get('class', [])).lower()
-
-            if (
-                    field_type == 'password' or
-                    'password' in autocomplete or
-                    'password' in field_name or
-                    'password' in field_id or
-                    'password' in field_class
-            ):
-                password_fields.append(field)
+        # Look for password fields directly
+        password_fields = soup.find_all('input', {'type': 'password'})
 
         if password_fields:
             return True
@@ -129,5 +114,3 @@ def detect_password_fields(url):
         return False
 
 
-url = "https://www.facebook.com/login"
-print(detect_password_fields(url))
