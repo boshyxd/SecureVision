@@ -12,13 +12,11 @@ async def create_breach_entry(
     db: Session = Depends(get_db)
 ):
     """Create a new breach entry"""
-    # TODO: Implement breach entry creation with breach_metadata field
     pass
 
 @router.get("/{entry_id}", response_model=BreachEntry)
 async def get_breach_entry(entry_id: int, db: Session = Depends(get_db)):
     """Get a specific breach entry"""
-    # TODO: Implement breach entry retrieval
     pass
 
 @router.get("/", response_model=List[BreachEntry])
@@ -28,5 +26,4 @@ async def list_breach_entries(
     db: Session = Depends(get_db)
 ):
     """List breach entries"""
-    # TODO: Implement breach entry listing
     pass 

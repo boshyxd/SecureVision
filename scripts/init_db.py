@@ -1,50 +1,30 @@
-import sys
+import pymysql
 import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
+from dotenv import load_dotenv
 from app.models.database import Base, engine
-from app.core.config import settings
-import mysql.connector
-from mysql.connector import Error
 
-def create_database():
-    """Create the database if it doesn't exist"""
-    try:
-        conn = mysql.connector.connect(
-            host=settings.MYSQL_HOST,
-            user=settings.MYSQL_USER,
-            password=settings.MYSQL_PASSWORD
-        )
-        
-        if conn.is_connected():
-            cursor = conn.cursor()
-            
-            # Create database if it doesn't exist
-            cursor.execute(f"CREATE DATABASE IF NOT EXISTS {settings.MYSQL_DB}")
-            print(f"Database '{settings.MYSQL_DB}' created successfully")
-            
-            cursor.close()
-            conn.close()
-            
-    except Error as e:
-        print(f"Error while connecting to MySQL: {e}")
-        sys.exit(1)
+load_dotenv()
 
-def init_db():
-    """Initialize database tables"""
+def init_mysql():
+    """Initialize MySQL database"""
+    conn = pymysql.connect(
+        host=os.getenv('MYSQL_HOST', 'localhost'),
+        user=os.getenv('MYSQL_USER', 'root'),
+        password=os.getenv('MYSQL_PASSWORD', 'password'),
+        charset='utf8mb4'
+    )
+    
     try:
-        # Create database
-        create_database()
-        
-        # Create tables
-        Base.metadata.create_all(bind=engine)
-        print("Database tables created successfully")
-        
-    except Exception as e:
-        print(f"Error initializing database: {e}")
-        sys.exit(1)
+        with conn.cursor() as cursor:
+            cursor.execute("DROP DATABASE IF EXISTS securevision")
+            cursor.execute("CREATE DATABASE securevision CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+        conn.commit()
+        print("Database 'securevision' recreated successfully")
+    finally:
+        conn.close()
+
+    Base.metadata.create_all(bind=engine)
+    print("Database tables created successfully")
 
 if __name__ == "__main__":
-    print("Initializing database...")
-    init_db()
-    print("Database initialization completed") 
+    init_mysql() 
