@@ -12,7 +12,7 @@ class BreachEntryCreate(BreachEntryBase):
 class BreachEntry(BreachEntryBase):
     id: int
     risk_score: float
-    metadata: Dict[str, Any]
+    breach_metadata: Dict[str, Any]
 
     class Config:
         from_attributes = True

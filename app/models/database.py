@@ -14,7 +14,7 @@ class BreachEntry(Base):
     username = Column(String(255))
     password = Column(String(255))
     risk_score = Column(Float, default=0.0)
-    metadata = Column(JSON)
+    breach_metadata = Column(JSON)
 
 engine = create_engine(settings.SQLALCHEMY_DATABASE_URI)
 SessionLocal = sessionmaker(bind=engine)
