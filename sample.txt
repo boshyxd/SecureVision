@@ -1,0 +1,9 @@
+https://panelist.cint.com:user123:pass123
+https://login.live.com/ppsecure/post.srf:admin:password123
+https://www.connexus.com/login.aspx:test@example.com:testpass
+https://app.clickup.com:user456:pass456
+https://biosd.kemdikbud.go.id:admin:admin123
+http://morrispay.in/CustomerLogin.aspx:support:support123
+https://www.webcheats.com.br:player:gamepass
+https://secure.confused.com:customer:secure123
+https://www.ecigmafia.com/login.php:shop:shop123 
