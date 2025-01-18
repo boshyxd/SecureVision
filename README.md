@@ -1,7 +1,7 @@
 ## The Stack
 
 - Backend: FastAPI, SQLAlchemy, MySQL
-- AI/ML: Groq AI (mixtral-8x7b-32768)
+- AI/ML: Groq AI
 - Frontend: React with Nivo/D3.js for visualizations
 - Real-time: WebSocket for live updates
 - Data Processing: Async background tasks
