@@ -1,7 +1,7 @@
 import aiohttp
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
-from app.models.database import SessionLocal, BreachEntry
+# from app.models.database import SessionLocal, BreachEntry
 import shodan
 import os
 import dotenv
@@ -118,10 +118,18 @@ def detect_password_fields(url):
 # https://github.com/ShielderSec/webtech
 def detect_with_webtech(url):
     try:
-        # Properly initialize WebTech
         webtech = WebTech(options={"timeout": 10})  # Set timeout explicitly
         report = webtech.start_from_url(url)
-        return report
+
+        # print("Detected technologies:\n", report)
+
+        # Use regex to extract technologies from the string
+        techs = re.findall(r"-\s([a-zA-Z0-9\s/]+(?: \d+\.\d+\.\d+)?)", report)
+
+        # Clean up the list by stripping unwanted characters like whitespace and newlines
+        cleaned_techs = [tech.strip() for tech in techs]
+
+        return cleaned_techs
+
     except Exception as e:
         return f"Error: {e}"
-
