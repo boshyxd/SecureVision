@@ -1,29 +1,50 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, JSON, DateTime, BigInteger, Text, Enum
+from sqlalchemy import create_engine, Column, Integer, String, Float, JSON, DateTime, BigInteger, Text, Enum, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import os
 from dotenv import load_dotenv
+import logging
 
 load_dotenv()
 
-MYSQL_URL = os.getenv("MYSQL_URL", "mysql+pymysql://root:password@localhost/securevision")
+logger = logging.getLogger(__name__)
+
+def get_database_url():
+    """Get database URL from environment or construct it from components"""
+    url = os.getenv("MYSQL_URL")
+    if url:
+        return url
+    
+    user = os.getenv("MYSQL_USER", "root")
+    password = os.getenv("MYSQL_PASSWORD", "")
+    host = os.getenv("MYSQL_HOST", "localhost")
+    db = os.getenv("MYSQL_DB", "securevision")
+    
+    return f"mysql+pymysql://{user}:{password}@{host}/{db}"
+
+MYSQL_URL = get_database_url()
 engine = create_engine(
     MYSQL_URL,
     pool_size=5,
     max_overflow=10,
     pool_timeout=30,
-    pool_recycle=1800
+    pool_recycle=1800,
+    echo=os.getenv("DEBUG", "false").lower() == "true"
 )
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-Base = declarative_base()
+try:
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base = declarative_base()
+except Exception as e:
+    logger.error(f"Failed to initialize database: {str(e)}")
+    raise
 
 class BreachEntry(Base):
     __tablename__ = "breach_entries"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    url = Column(String(2048), nullable=False, index=True)
+    url = Column(String(2048), nullable=False)
     username = Column(String(255), nullable=False)
     password = Column(String(255), nullable=False)
     
@@ -46,6 +67,10 @@ class BreachEntry(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     last_checked = Column(DateTime, default=datetime.utcnow)
     last_modified = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index('ix_breach_entries_url', 'url', mysql_length=767),
+    )
 
     def to_dict(self):
         return {
