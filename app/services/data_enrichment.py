@@ -7,10 +7,13 @@ import os
 import dotenv
 import requests
 import re
+from webtech import WebTech
 
 dotenv.load_dotenv()
 SHODAN_API_KEY = os.getenv("SHODAN_API_KEY")
 
+# Compile regex once at module level
+TECH_PATTERN = re.compile(r"-\s([a-zA-Z0-9\s/]+(?: \d+\.\d+\.\d+)?)")
 
 async def check_url_accessibility(url: str) -> dict:
     """Check if URL is accessible"""
@@ -91,3 +94,46 @@ def check_captcha(url):
     else:
         return False
 
+
+def detect_password_fields(url):
+    try:
+        # Fetch the webpage with timeout
+        response = requests.get(url, timeout=5)
+        response.raise_for_status()
+
+        # Parse the HTML using a faster parser
+        soup = BeautifulSoup(response.text, 'lxml')
+
+        # Look for password fields directly
+        password_fields = soup.find_all('input', {'type': 'password'})
+
+        if password_fields:
+            return True
+        else:
+            return False
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
+
+
+# https://github.com/ShielderSec/webtech
+def detect_with_webtech(url):
+    try:
+        webtech = WebTech(options={"timeout": 10})  # Set timeout explicitly
+        report = webtech.start_from_url(url)
+
+        # print("Detected technologies:\n", report)
+
+        # Use regex to extract technologies from the string
+        techs = TECH_PATTERN.findall(report)
+
+        # Clean up the list by stripping unwanted characters like whitespace and newlines
+        cleaned_techs = [tech.strip() for tech in techs]
+
+        return cleaned_techs
+
+    except Exception as e:
+        return f"Error: {e}"
+
+print(detect_with_webtech("https://carletonai.com/"))
