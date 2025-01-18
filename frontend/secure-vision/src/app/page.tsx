@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { BreachTable } from "@/components/breach-analysis/table/breach-table";
@@ -8,8 +8,8 @@ import { BreachStats } from "@/components/breach-analysis/stats/breach-stats";
 import { AdvancedFilters } from "@/components/breach-analysis/filters/advanced-filters";
 import { UploadDialog } from "@/components/breach-analysis/layout/upload-dialog";
 import { Navbar } from "@/components/breach-analysis/layout/navbar";
-import { SearchFilters, BreachEntry } from "@/types";
-import { debounce } from "lodash";
+import { SearchFilters } from "@/types";
+import { useBreachSearch } from "@/hooks/useBreachSearch";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
@@ -35,84 +35,32 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
-const generateMockEntry = (): BreachEntry => {
-  const patterns = ["keyboard_walk", "date_based", "common_word", "repeated_chars"];
-  const domains = ["example.com", "test.org", "demo.net"];
-  const tags = ["resolved", "local-ip", "parked", "active", "login-form", "captcha", "mfa"];
-  
-  return {
-    id: Math.random().toString(36).substring(7),
-    url: `https://${domains[Math.floor(Math.random() * domains.length)]}/login`,
-    username: `user${Math.floor(Math.random() * 1000)}@domain.com`,
-    password: "password123",
-    risk_score: Math.random(),
-    pattern_type: patterns[Math.floor(Math.random() * patterns.length)],
-    last_analyzed: new Date().toISOString(),
-    metadata: {
-      ip_address: "192.168.1.1",
-      port: 443,
-      domain: domains[Math.floor(Math.random() * domains.length)],
-      page_title: "Login Page",
-      status: 200,
-      tags: Array.from({ length: Math.floor(Math.random() * 3) + 1 }, () => 
-        tags[Math.floor(Math.random() * tags.length)]
-      )
-    }
-  };
-};
-
-const mockSearch = async (query: string, filters: SearchFilters) => {
-  await new Promise(resolve => setTimeout(resolve, 500));
-  return Array.from({ length: 20 }, generateMockEntry);
-};
-
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [tempFilters, setTempFilters] = useState<SearchFilters>({});
   const [activeFilters, setActiveFilters] = useState<SearchFilters>({});
-  const [entries, setEntries] = useState<BreachEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [totalEntries, setTotalEntries] = useState(0);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
   const [activeSearchType, setActiveSearchType] = useState<'domain' | 'application' | 'port' | 'path'>('domain');
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
-  const performSearch = useCallback(
-    debounce(async (query: string, filters: SearchFilters) => {
-      setIsLoading(true);
-      try {
-        const results = await mockSearch(query, filters);
-        setEntries(prev => [...prev, ...results]);
-        setTotalEntries(prev => prev + results.length);
-        setHasMore(results.length === 20);
-      } catch (error) {
-        console.error("Search failed:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    }, 300),
-    []
-  );
-
-  useEffect(() => {
-    setEntries([]);
-    setCurrentPage(1);
-    setTotalEntries(0);
-    performSearch(searchQuery, activeFilters);
-  }, [searchQuery, activeFilters, performSearch]);
-
-  const handleLoadMore = () => {
-    setCurrentPage(prev => prev + 1);
-    performSearch(searchQuery, activeFilters);
-  };
+  const {
+    entries,
+    isLoading,
+    totalEntries,
+    hasMore,
+    search,
+    loadMore
+  } = useBreachSearch();
 
   const handleApplyFilters = () => {
     setActiveFilters(tempFilters);
+    search(searchQuery, tempFilters);
   };
 
   const handleResetFilters = () => {
     setTempFilters({});
     setActiveFilters({});
+    search(searchQuery, {});
   };
 
   return (
@@ -266,7 +214,10 @@ export default function Home() {
         <Navbar 
           searchQuery={searchQuery}
           activeSearchType={activeSearchType}
-          onSearchChange={setSearchQuery}
+          onSearchChange={(query) => {
+            setSearchQuery(query);
+            search(query, activeFilters);
+          }}
           onSearchTypeChange={setActiveSearchType}
         />
         <main className="flex-1 container mx-auto py-6 px-8 max-w-7xl space-y-6">
@@ -297,7 +248,10 @@ export default function Home() {
                     onResetFilters={handleResetFilters}
                   />
                 </Sheet>
-                <UploadDialog />
+                <UploadDialog 
+                  isUploading={isUploading}
+                  progress={uploadProgress}
+                />
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -320,7 +274,7 @@ export default function Home() {
                   <div className="absolute bottom-0 left-0 right-0 flex justify-center py-4 bg-gradient-to-t from-black/40 to-transparent">
                     <Button
                       variant="outline"
-                      onClick={handleLoadMore}
+                      onClick={loadMore}
                       disabled={isLoading}
                       className="font-mono border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 text-zinc-400"
                     >

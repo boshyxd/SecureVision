@@ -12,7 +12,12 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Upload } from "lucide-react";
 
-export function UploadDialog() {
+interface UploadDialogProps {
+  isUploading?: boolean;
+  progress?: number;
+}
+
+export function UploadDialog({ isUploading = false, progress = 0 }: UploadDialogProps) {
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -40,15 +45,17 @@ export function UploadDialog() {
               </Button>
             </div>
           </div>
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm font-mono">
-              <span className="text-zinc-400">Processing entries...</span>
-              <span className="text-zinc-100">33%</span>
+          {isUploading && (
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm font-mono">
+                <span className="text-zinc-400">Processing entries...</span>
+                <span className="text-zinc-100">{progress}%</span>
+              </div>
+              <Progress value={progress} className="h-1.5 bg-zinc-800">
+                <div className="h-1.5 bg-blue-500/90 transition-all" style={{ width: `${progress}%` }} />
+              </Progress>
             </div>
-            <Progress value={33} className="h-1.5 bg-zinc-800">
-              <div className="h-1.5 bg-blue-500/90 transition-all" style={{ width: '33%' }} />
-            </Progress>
-          </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
