@@ -12,6 +12,8 @@ from webtech import WebTech
 dotenv.load_dotenv()
 SHODAN_API_KEY = os.getenv("SHODAN_API_KEY")
 
+# Compile regex once at module level
+TECH_PATTERN = re.compile(r"-\s([a-zA-Z0-9\s/]+(?: \d+\.\d+\.\d+)?)")
 
 async def check_url_accessibility(url: str) -> dict:
     """Check if URL is accessible"""
@@ -124,7 +126,7 @@ def detect_with_webtech(url):
         # print("Detected technologies:\n", report)
 
         # Use regex to extract technologies from the string
-        techs = re.findall(r"-\s([a-zA-Z0-9\s/]+(?: \d+\.\d+\.\d+)?)", report)
+        techs = TECH_PATTERN.findall(report)
 
         # Clean up the list by stripping unwanted characters like whitespace and newlines
         cleaned_techs = [tech.strip() for tech in techs]
@@ -133,3 +135,5 @@ def detect_with_webtech(url):
 
     except Exception as e:
         return f"Error: {e}"
+
+print(detect_with_webtech("https://carletonai.com/"))
