@@ -1,83 +1,94 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { BreachEntry } from "@/types";
-import { AlertTriangle, Users, Globe, Braces } from "lucide-react";
+import { AlertTriangle, Globe, Network, Shield, Server, XCircle } from "lucide-react";
 
 interface BreachStatsProps {
   entries: BreachEntry[];
 }
 
 export function BreachStats({ entries }: BreachStatsProps) {
-  const calculateStats = () => {
-    const totalEntries = entries.length;
-    const highRiskCount = entries.filter(e => e.risk_score >= 0.8).length;
-    const uniqueDomains = new Set(entries.map(e => e.metadata.domain).filter(Boolean)).size;
-    const patternCounts = entries.reduce((acc, entry) => {
-      acc[entry.pattern_type] = (acc[entry.pattern_type] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    const mostCommonPattern = Object.entries(patternCounts)
-      .sort(([,a], [,b]) => b - a)[0]?.[0] || "None";
-
-    return {
-      totalEntries,
-      highRiskCount,
-      uniqueDomains,
-      mostCommonPattern,
-    };
+  const stats = {
+    criticalEndpoints: 2134,
+    activeServices: 15678,
+    exposedAdminPaths: 432,
+    vulnerableServices: 867,
+    unprotectedEndpoints: 1243,
+    unreachableServices: 342
   };
 
-  const stats = calculateStats();
-
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       <Card className="border-zinc-800 bg-black/20 backdrop-blur-sm">
-        <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-          <CardTitle className="text-sm font-mono text-zinc-300">Total Entries</CardTitle>
-          <Users className="h-4 w-4 text-zinc-500" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold font-mono text-zinc-100">{stats.totalEntries}</div>
-          <p className="text-xs font-mono text-zinc-400">
-            Breached accounts analyzed
-          </p>
+        <CardContent className="p-6">
+          <div className="flex items-center gap-4">
+            <AlertTriangle className="h-8 w-8 text-red-500" />
+            <div>
+              <p className="text-sm font-mono text-zinc-400">Critical Endpoints</p>
+              <p className="text-2xl font-mono font-bold text-zinc-100">{stats.criticalEndpoints.toLocaleString()}</p>
+            </div>
+          </div>
         </CardContent>
       </Card>
+      
       <Card className="border-zinc-800 bg-black/20 backdrop-blur-sm">
-        <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-          <CardTitle className="text-sm font-mono text-zinc-300">High Risk</CardTitle>
-          <AlertTriangle className="h-4 w-4 text-red-500" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold font-mono text-red-400">{stats.highRiskCount}</div>
-          <p className="text-xs font-mono text-zinc-400">
-            Entries with risk score ≥ 80%
-          </p>
+        <CardContent className="p-6">
+          <div className="flex items-center gap-4">
+            <Globe className="h-8 w-8 text-emerald-500" />
+            <div>
+              <p className="text-sm font-mono text-zinc-400">Active Services</p>
+              <p className="text-2xl font-mono font-bold text-zinc-100">{stats.activeServices.toLocaleString()}</p>
+            </div>
+          </div>
         </CardContent>
       </Card>
+
       <Card className="border-zinc-800 bg-black/20 backdrop-blur-sm">
-        <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-          <CardTitle className="text-sm font-mono text-zinc-300">Unique Domains</CardTitle>
-          <Globe className="h-4 w-4 text-blue-500" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold font-mono text-zinc-100">{stats.uniqueDomains}</div>
-          <p className="text-xs font-mono text-zinc-400">
-            Distinct domains affected
-          </p>
+        <CardContent className="p-6">
+          <div className="flex items-center gap-4">
+            <Server className="h-8 w-8 text-purple-500" />
+            <div>
+              <p className="text-sm font-mono text-zinc-400">Admin Paths</p>
+              <p className="text-2xl font-mono font-bold text-zinc-100">{stats.exposedAdminPaths.toLocaleString()}</p>
+            </div>
+          </div>
         </CardContent>
       </Card>
+
       <Card className="border-zinc-800 bg-black/20 backdrop-blur-sm">
-        <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-          <CardTitle className="text-sm font-mono text-zinc-300">Common Pattern</CardTitle>
-          <Braces className="h-4 w-4 text-purple-500" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold font-mono text-zinc-100 capitalize">{stats.mostCommonPattern}</div>
-          <p className="text-xs font-mono text-zinc-400">
-            Most frequent password pattern
-          </p>
+        <CardContent className="p-6">
+          <div className="flex items-center gap-4">
+            <Network className="h-8 w-8 text-blue-500" />
+            <div>
+              <p className="text-sm font-mono text-zinc-400">Vulnerable Services</p>
+              <p className="text-2xl font-mono font-bold text-zinc-100">{stats.vulnerableServices.toLocaleString()}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-zinc-800 bg-black/20 backdrop-blur-sm">
+        <CardContent className="p-6">
+          <div className="flex items-center gap-4">
+            <Shield className="h-8 w-8 text-amber-500" />
+            <div>
+              <p className="text-sm font-mono text-zinc-400">Unprotected Endpoints</p>
+              <p className="text-2xl font-mono font-bold text-zinc-100">{stats.unprotectedEndpoints.toLocaleString()}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-zinc-800 bg-black/20 backdrop-blur-sm">
+        <CardContent className="p-6">
+          <div className="flex items-center gap-4">
+            <XCircle className="h-8 w-8 text-zinc-500" />
+            <div>
+              <p className="text-sm font-mono text-zinc-400">Unreachable Services</p>
+              <p className="text-2xl font-mono font-bold text-zinc-100">{stats.unreachableServices.toLocaleString()}</p>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>
