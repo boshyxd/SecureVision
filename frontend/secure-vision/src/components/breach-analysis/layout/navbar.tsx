@@ -2,8 +2,9 @@
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search } from "lucide-react";
+import { Search, BarChart2 } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 
 interface NavbarProps {
   searchQuery: string;
@@ -49,6 +50,11 @@ export function Navbar({
               onChange={(e) => onSearchChange(e.target.value)}
             />
           </div>
+          <Link href="/statistics">
+            <Button variant="ghost" size="icon" className="text-zinc-400 hover:text-zinc-100">
+              <BarChart2 className="h-5 w-5" />
+            </Button>
+          </Link>
           <div className="flex items-center space-x-2">
             <Button
               variant="ghost"

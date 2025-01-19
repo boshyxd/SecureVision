@@ -8,7 +8,7 @@ interface UseBreachSearchProps {
   debounceMs?: number;
 }
 
-interface UseBreachSearchReturn {
+export interface UseBreachSearchReturn {
   entries: BreachEntry[];
   isLoading: boolean;
   totalEntries: number;
@@ -16,6 +16,7 @@ interface UseBreachSearchReturn {
   hasMore: boolean;
   search: (query: string, filters: SearchFilters) => void;
   loadMore: () => void;
+  updateEntry: (updatedEntry: BreachEntry) => void;
 }
 
 export function useBreachSearch({
@@ -415,6 +416,14 @@ export function useBreachSearch({
     }
   }, [currentPage, currentQuery, currentFilters, hasMore, isLoading, performSearch]);
 
+  const updateEntry = useCallback((updatedEntry: BreachEntry) => {
+    setEntries(currentEntries => 
+      currentEntries.map(entry => 
+        entry.id === updatedEntry.id ? updatedEntry : entry
+      )
+    );
+  }, []);
+
   return {
     entries,
     isLoading,
@@ -422,7 +431,8 @@ export function useBreachSearch({
     currentPage,
     hasMore,
     search,
-    loadMore
+    loadMore,
+    updateEntry
   };
 }
 

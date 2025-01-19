@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { BreachEntry } from "@/types";
-import { CheckCircle2, XCircle, AlertTriangle, Shield, Info, Loader2 } from "lucide-react";
+import { CheckCircle2, XCircle, AlertTriangle, Shield, Info, Loader2, Bot } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import {
@@ -90,12 +90,9 @@ export function BreachTable({ entries, isLoading, hasMore, onLoadMore, onAssessR
     );
   };
 
-  const handleAnalyzeRisk = async (entry: BreachEntry) => {
+  const handleAnalyzeRisk = (entry: BreachEntry) => {
     setSelectedEntry(entry);
     setIsDialogOpen(true);
-    if (onAssessRisk) {
-      await onAssessRisk(entry);
-    }
   };
 
   return (
@@ -105,6 +102,7 @@ export function BreachTable({ entries, isLoading, hasMore, onLoadMore, onAssessR
         onOpenChange={setIsDialogOpen}
         entry={selectedEntry}
         isAnalyzing={selectedEntry?.isAssessing || false}
+        onAssessRisk={onAssessRisk}
       />
       <ScrollArea className="h-[600px] rounded-md border border-zinc-800">
         <table className="w-full">
@@ -171,70 +169,15 @@ export function BreachTable({ entries, isLoading, hasMore, onLoadMore, onAssessR
                           </div>
                         )}
                         <div className="flex flex-col gap-2">
-                          <h4 className="font-mono text-sm font-semibold text-zinc-200">Risk Assessment</h4>
-                          <div className="text-xs font-mono">
-                            {entry.risk_assessment ? (
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-mono ${
-                                    entry.risk_assessment.risk_level === 'high' ? 'bg-red-950/30 text-red-400' :
-                                    entry.risk_assessment.risk_level === 'medium' ? 'bg-amber-950/30 text-amber-400' :
-                                    'bg-emerald-950/30 text-emerald-400'
-                                  }`}>
-                                    {entry.risk_assessment.risk_level.toUpperCase()} RISK
-                                  </span>
-                                  <span className="text-zinc-400">
-                                    Score: {entry.risk_assessment.risk_score}/100
-                                  </span>
-                                </div>
-                                <p className="text-zinc-400">{entry.risk_assessment.analysis}</p>
-                                {entry.risk_assessment.factors && (
-                                  <div className="space-y-1">
-                                    <h5 className="font-semibold text-zinc-300">Risk Factors:</h5>
-                                    {entry.risk_assessment.factors.map((factor, index) => (
-                                      <div key={index} className="flex items-start gap-2">
-                                        <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] ${
-                                          factor.impact === 'negative' ? 'bg-red-950/30 text-red-400' : 'bg-emerald-950/30 text-emerald-400'
-                                        }`}>
-                                          {factor.impact === 'negative' ? '-' : '+'}{factor.weight}
-                                        </span>
-                                        <div className="flex-1">
-                                          <p className="text-zinc-300">{factor.name}</p>
-                                          <p className="text-zinc-500 text-[10px]">{factor.description}</p>
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                                {entry.risk_assessment.recommendations && (
-                                  <div className="space-y-1">
-                                    <h5 className="font-semibold text-zinc-300">Recommendations:</h5>
-                                    <ul className="list-disc list-inside space-y-0.5">
-                                      {entry.risk_assessment.recommendations.map((rec, index) => (
-                                        <li key={index} className="text-zinc-400">{rec}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              <Button 
-                                variant="outline" 
-                                size="sm" 
-                                className="w-full"
-                                onClick={() => handleAnalyzeRisk(entry)}
-                              >
-                                {entry.isAssessing ? (
-                                  <>
-                                    <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                                    Analyzing...
-                                  </>
-                                ) : (
-                                  'Analyze Risk'
-                                )}
-                              </Button>
-                            )}
-                          </div>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="w-full"
+                            onClick={() => handleAnalyzeRisk(entry)}
+                          >
+                            <Bot className="mr-2 h-3 w-3" />
+                            View Risk Analysis
+                          </Button>
                         </div>
                       </div>
                     </HoverCardContent>
