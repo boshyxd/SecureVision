@@ -24,7 +24,8 @@ provider "registry.terraform.io/kreuzwerker/docker" {
 }
 
 provider "registry.terraform.io/solaceproducts/solacebroker" {
-  version = "1.1.1"
+  version     = "1.1.1"
+  constraints = "~> 1.1.1"
   hashes = [
     "h1:JyI/65diuyJbPb2eudlngZEpPyZV7cTbxGiSLs/gLso=",
     "zh:0b03c1ed53a88268ade19ca115b6537bd34aee71403f2bbe36ff656d84087caf",
