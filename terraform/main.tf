@@ -100,7 +100,6 @@ resource "docker_container" "frontend" {
     name = docker_network.securevision_network.name
   }
 }
-
 # Data workers
 resource "docker_image" "data_worker" {
   name = var.worker_image_name
