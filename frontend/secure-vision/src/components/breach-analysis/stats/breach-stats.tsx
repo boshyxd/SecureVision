@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { BreachEntry } from "@/types";
 import { AlertTriangle, Globe, Network, Shield, Server, XCircle } from "lucide-react";
-import { getBreachStats } from '@/services/api';
 
 interface BreachStatsProps {
   entries: BreachEntry[];
@@ -20,30 +19,57 @@ interface Stats {
 }
 
 export function BreachStats({ entries }: BreachStatsProps) {
-  const [stats, setStats] = useState<Stats>({
-    criticalEndpoints: 0,
-    activeServices: 0,
-    exposedAdminPaths: 0,
-    vulnerableServices: 0,
-    unprotectedEndpoints: 0,
-    unreachableServices: 0
-  });
-
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const newStats = await getBreachStats();
-        setStats(newStats);
-      } catch (error) {
-        console.error('Failed to fetch stats:', error);
-      }
+  // Calculate stats in real-time using useMemo
+  const stats = useMemo(() => {
+    const newStats = {
+      criticalEndpoints: 0,
+      activeServices: 0,
+      exposedAdminPaths: 0,
+      vulnerableServices: 0,
+      unprotectedEndpoints: 0,
+      unreachableServices: 0
     };
 
-    fetchStats();
-  }, []);
+    entries.forEach(entry => {
+      // Count active services (status code 200)
+      if (entry.metadata?.status === 200) {
+        newStats.activeServices++;
+      }
+
+      // Count unreachable services (no status code or non-200)
+      if (!entry.metadata?.status || entry.metadata.status !== 200) {
+        newStats.unreachableServices++;
+      }
+
+      // Count critical endpoints (has breaches or high risk score)
+      if (entry.metadata?.breach_info?.is_breached || (entry.risk_score && entry.risk_score > 0.7)) {
+        newStats.criticalEndpoints++;
+      }
+
+      // Count admin paths
+      const lowercaseUrl = entry.url.toLowerCase();
+      if (lowercaseUrl.includes('admin') || lowercaseUrl.includes('administrator') || 
+          lowercaseUrl.includes('wp-admin') || lowercaseUrl.includes('dashboard')) {
+        newStats.exposedAdminPaths++;
+      }
+
+      // Count vulnerable services (has breaches or no security features)
+      if (entry.metadata?.breach_info?.is_breached || 
+          (!entry.metadata?.hasCaptcha && !entry.metadata?.hasMfa && !entry.metadata?.isSecure)) {
+        newStats.vulnerableServices++;
+      }
+
+      // Count unprotected endpoints (no security features)
+      if (!entry.metadata?.hasCaptcha && !entry.metadata?.hasMfa && !entry.metadata?.isSecure) {
+        newStats.unprotectedEndpoints++;
+      }
+    });
+
+    return newStats;
+  }, [entries]);
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
       <Card className="border-zinc-800 bg-black/20 backdrop-blur-sm">
         <CardContent className="p-6">
           <div className="flex items-center gap-4">

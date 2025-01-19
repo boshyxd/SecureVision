@@ -7,7 +7,7 @@ interface SearchResponse {
   total: number;
   page: number;
   page_size: number;
-  total_pages: number;
+  has_more: boolean;
 }
 
 export async function searchBreachData(
@@ -22,21 +22,37 @@ export async function searchBreachData(
     page_size: pageSize.toString(),
   });
 
-  // Add filters to query params
-  if (filters.ports?.length) {
-    filters.ports.forEach(port => searchParams.append('ports', port.toString()));
+  // Add all filter parameters
+  if (filters.domain) {
+    searchParams.append('domain', filters.domain);
   }
-  if (filters.excludeNonRoutable) {
-    searchParams.append('exclude_local_ips', 'true');
+  if (filters.port !== undefined) {
+    searchParams.append('port', filters.port.toString());
   }
   if (filters.application?.length) {
-    filters.application.forEach(app => searchParams.append('service_types', app));
+    filters.application.forEach(app => searchParams.append('application', app));
   }
-  if (filters.urlPaths?.length) {
-    filters.urlPaths.forEach(path => searchParams.append('url_paths', path));
+  if (filters.has_captcha !== undefined) {
+    searchParams.append('has_captcha', filters.has_captcha.toString());
+  }
+  if (filters.has_mfa !== undefined) {
+    searchParams.append('has_mfa', filters.has_mfa.toString());
+  }
+  if (filters.is_secure !== undefined) {
+    searchParams.append('is_secure', filters.is_secure.toString());
+  }
+  if (filters.excludeNonRoutable !== undefined) {
+    searchParams.append('excludeNonRoutable', filters.excludeNonRoutable.toString());
+  }
+  if (filters.risk_score_min !== undefined) {
+    searchParams.append('risk_score_min', filters.risk_score_min.toString());
+  }
+  if (filters.risk_score_max !== undefined) {
+    searchParams.append('risk_score_max', filters.risk_score_max.toString());
   }
 
-  console.log('Fetching from:', `${API_BASE_URL}/search?${searchParams.toString()}`);
+  console.log('Fetching with filters:', filters);
+  console.log('Search URL:', `${API_BASE_URL}/search?${searchParams.toString()}`);
 
   const response = await fetch(`${API_BASE_URL}/search?${searchParams.toString()}`, {
     method: 'GET',
@@ -50,34 +66,7 @@ export async function searchBreachData(
   }
 
   const data = await response.json();
-  console.log('Search response:', data);
-
-  return {
-    entries: data.entries.map((entry: any) => ({
-      id: entry.id.toString(),
-      url: entry.url,
-      username: entry.username,
-      password: entry.password,
-      risk_score: 0.5, // TODO: Implement risk scoring
-      pattern_type: 'unknown', // TODO: Implement pattern detection
-      last_analyzed: entry.last_analyzed,
-      metadata: {
-        ip_address: entry.metadata.ip_address,
-        port: entry.metadata.port,
-        domain: entry.metadata.domain,
-        page_title: entry.metadata.page_title,
-        status: entry.metadata.status,
-        tags: entry.tags || [],
-        hasCaptcha: entry.metadata.hasCaptcha,
-        hasMfa: entry.metadata.hasMfa,
-        isSecure: entry.metadata.isSecure
-      }
-    })),
-    total: data.total,
-    page: data.page,
-    page_size: data.page_size,
-    total_pages: data.total_pages
-  };
+  return data;
 }
 
 export async function getBreachStats(): Promise<{
@@ -101,7 +90,6 @@ export async function getBreachStats(): Promise<{
 
   const data = await response.json();
   
-  // Transform snake_case to camelCase
   return {
     criticalEndpoints: data.critical_endpoints,
     activeServices: data.active_services,

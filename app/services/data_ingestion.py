@@ -104,9 +104,27 @@ async def process_breach_file(
                             if breach_data:
                                 if 'breached' not in entry.tags:
                                     entry.tags = list(set(entry.tags or [] + ['breached']))
+                                # Store breach data directly in the database fields
+                                entry.had_breach = 1 if breach_data.get('breaches') else 0
+                                entry.breach_count = len(breach_data.get('breaches', []))
+                                entry.total_pwned = breach_data.get('total_pwned', 0)
+                                if breach_data.get('latest_breach'):
+                                    try:
+                                        entry.latest_breach = datetime.strptime(breach_data['latest_breach'], '%Y-%m-%d')
+                                    except ValueError:
+                                        logger.warning(f"Invalid breach date format: {breach_data['latest_breach']}")
+                                entry.data_classes = breach_data.get('data_classes', [])
+                                entry.breach_details = breach_data.get('breaches', [])
+                                
+                                # Update extra metadata with additional breach info
                                 entry.extra_metadata = {
                                     **(entry.extra_metadata or {}),
-                                    'breach_info': breach_data
+                                    'breach_summary': {
+                                        'total_breaches': entry.breach_count,
+                                        'total_pwned': entry.total_pwned,
+                                        'latest_breach': breach_data.get('latest_breach'),
+                                        'data_classes': entry.data_classes
+                                    }
                                 }
                                 db.commit()
                                 db.refresh(entry)
