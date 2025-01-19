@@ -1,4 +1,5 @@
 import os
+import sys
 import aiohttp
 import logging
 from urllib.parse import urlparse
@@ -10,8 +11,27 @@ from datetime import datetime
 import shodan
 import re
 import asyncio
+import time
+import random
+import paho.mqtt.client as mqtt
+import json
+from dataclasses import dataclass
+from pydantic import BaseModel
+
+# This is to have the data enrichment thing be self contained
+class ParsedBreachEntry(BaseModel):
+    url: str
+    username: str
+    password: str    
+    hostname: str
+    path: str
+    port: int
+    is_secure: bool
+    line_number: int
 
 logger = logging.getLogger(__name__)
+handler = logging.StreamHandler(sys.stdout)
+logger.addHandler(handler)
 
 class DataEnrichmentService:
     def __init__(self):
@@ -20,6 +40,11 @@ class DataEnrichmentService:
         self.session = aiohttp.ClientSession()
         self.breach_cache = {}
         self.last_breach_check = {}
+        self.breachdirectory_api_key = os.getenv('BREACHDIRECTORY_API_KEY')
+        self.last_api_call = 0
+        self.rate_limit_delay = 1.1
+        if not self.breachdirectory_api_key:
+            logger.error("BreachDirectory API key not found in environment variables")
 
     async def __aenter__(self):
         if not self.session or self.session.closed:
@@ -39,149 +64,153 @@ class DataEnrichmentService:
             port = parsed.port or (443 if parsed.scheme == 'https' else 80)
             is_secure = parsed.scheme == 'https'
             
-            tags = []
-            if is_secure:
-                tags.append('https')
-            else:
-                tags.append('http')
+            # Initialize metadata
+            metadata = {
+                'domain': domain,
+                'ip_address': None,
+                'port': port,
+                'path': path,
+                'page_title': None,
+                'service_type': None,
+                'hasCaptcha': False,
+                'hasMfa': False,
+                'isSecure': is_secure,
+                'status': None,
+                'tags': []
+            }
             
-            # Send initial status
+            # Add protocol tag
+            metadata['tags'].append('https' if is_secure else 'http')
+            
+            # Get breach information
+            breach_info = await self._check_breach_status(domain)
+            
+            # Structure breach information for database
+            metadata['breach_info'] = {
+                'is_breached': bool(breach_info.get('breaches')),
+                'total_breaches': len(breach_info.get('breaches', [])),
+                'total_pwned': breach_info.get('total_pwned', 0),
+                'latest_breach': breach_info.get('latest_breach'),
+                'data_classes': breach_info.get('data_classes', []),
+                'breaches': breach_info.get('breaches', [])
+            }
+            
+            # Add breach-related tags
+            if breach_info and breach_info.get('tags'):
+                metadata['tags'].extend(breach_info['tags'])
+            
+            # Send initial update with structured metadata
             if websocket_manager and entry_id:
                 await websocket_manager.broadcast_update({
-                    'type': 'enrichment_update',
-                    'entry_id': entry_id,
-                    'status': 'processing',
-                    'current_step': 'initial_analysis',
-                    'data': {'tags': tags, 'is_secure': is_secure}
+                    'id': entry_id,
+                    'url': url,
+                    'metadata': metadata,
+                    'risk_score': 0.5,
+                    'pattern_type': 'unknown',
+                    'last_analyzed': datetime.utcnow().isoformat()
                 })
             
+            # Handle local IP
             if self._is_local_ip(domain):
-                tags.append('local-ip')
-                result = {
-                    'domain': domain,
-                    'ip_address': None,
-                    'port': port,
-                    'path': path,
-                    'service_type': None,
-                    'has_captcha': 0,
-                    'has_mfa': 0,
-                    'is_secure': 1 if is_secure else 0,
-                    'status_code': None,
-                    'tags': tags,
-                    'extra_metadata': {'dns_resolution': 'local'}
-                }
-                if websocket_manager and entry_id:
-                    await websocket_manager.broadcast_update({
-                        'type': 'enrichment_update',
-                        'entry_id': entry_id,
-                        'status': 'completed',
-                        'data': result
-                    })
-                return result
+                metadata['tags'].append('local-ip')
+                return metadata
 
+            # Check service type
             service_type = self._detect_service_type(url, path)
             if service_type:
-                tags.append(f'service-{service_type}')
+                metadata['service_type'] = service_type
+                metadata['tags'].append(f'service-{service_type}')
                 if websocket_manager and entry_id:
                     await websocket_manager.broadcast_update({
-                        'type': 'enrichment_update',
-                        'entry_id': entry_id,
-                        'current_step': 'service_detection',
-                        'data': {'service_type': service_type, 'tags': tags}
+                        'id': entry_id,
+                        'url': url,
+                        'metadata': metadata,
+                        'risk_score': 0.5,
+                        'pattern_type': 'unknown',
+                        'last_analyzed': datetime.utcnow().isoformat()
                     })
 
-            if not re.match(r'^https?://', url):
-                return None
-
-            enriched_data = {
-                "domain": domain,
-                "ip_address": None,
-                "port": port,
-                "path": path,
-                "page_title": None,
-                "service_type": service_type,
-                "has_captcha": 0,
-                "has_mfa": 0,
-                "is_secure": 1 if is_secure else 0,
-                "status_code": None,
-                "tags": tags,
-                "extra_metadata": {}
-            }
-
+            # Resolve domain
             try:
                 ip_data = await self._resolve_domain(domain)
                 if ip_data:
-                    enriched_data.update(ip_data)
+                    metadata['ip_address'] = ip_data.get('ip_address')
                     if ip_data.get('tags'):
-                        enriched_data['tags'].extend(ip_data['tags'])
+                        metadata['tags'].extend(ip_data['tags'])
                     if websocket_manager and entry_id:
                         await websocket_manager.broadcast_update({
-                            'type': 'enrichment_update',
-                            'entry_id': entry_id,
-                            'current_step': 'dns_resolution',
-                            'data': {'ip_address': ip_data.get('ip_address'), 'tags': enriched_data['tags']}
+                            'id': entry_id,
+                            'url': url,
+                            'metadata': metadata,
+                            'risk_score': 0.5,
+                            'pattern_type': 'unknown',
+                            'last_analyzed': datetime.utcnow().isoformat()
                         })
             except Exception as e:
                 logger.error(f"Error resolving domain {domain}: {str(e)}")
 
-            try:
-                if self.shodan_api and enriched_data.get("ip_address"):
-                    shodan_data = await self._get_shodan_data(enriched_data["ip_address"])
-                    if shodan_data:
-                        enriched_data["extra_metadata"]["shodan"] = shodan_data
-                        if websocket_manager and entry_id:
-                            await websocket_manager.broadcast_update({
-                                'type': 'enrichment_update',
-                                'entry_id': entry_id,
-                                'current_step': 'shodan_analysis',
-                                'data': {'extra_metadata': enriched_data["extra_metadata"]}
-                            })
-            except Exception as e:
-                logger.error(f"Error getting Shodan data: {str(e)}")
-
+            # Check URL accessibility
             try:
                 url_data = await self._check_url_accessibility(url)
                 if url_data:
-                    enriched_data.update(url_data)
+                    metadata.update({
+                        'status': url_data.get('status_code'),
+                        'page_title': url_data.get('page_title'),
+                        'hasCaptcha': bool(url_data.get('has_captcha')),
+                        'hasMfa': bool(url_data.get('has_mfa'))
+                    })
                     if url_data.get('tags'):
-                        enriched_data['tags'].extend(url_data['tags'])
+                        metadata['tags'].extend(url_data['tags'])
+                    if websocket_manager and entry_id:
+                        await websocket_manager.broadcast_update({
+                            'id': entry_id,
+                            'url': url,
+                            'metadata': metadata,
+                            'risk_score': 0.5,
+                            'pattern_type': 'unknown',
+                            'last_analyzed': datetime.utcnow().isoformat()
+                        })
             except Exception as e:
                 logger.error(f"Error checking URL accessibility: {str(e)}")
 
-            # Ensure tags is a list and contains unique values
-            enriched_data["tags"] = list(set(enriched_data.get("tags", [])))
+            # Deduplicate tags
+            metadata['tags'] = list(set(metadata['tags']))
             
-            # Convert boolean values to integers for database storage
-            enriched_data["has_captcha"] = 1 if enriched_data.get("has_captcha") else 0
-            enriched_data["has_mfa"] = 1 if enriched_data.get("has_mfa") else 0
-            enriched_data["is_secure"] = 1 if enriched_data.get("is_secure") else 0
-            
-            # Send final update
+            # Final update with all information
             if websocket_manager and entry_id:
                 await websocket_manager.broadcast_update({
-                    'type': 'enrichment_update',
-                    'entry_id': entry_id,
-                    'status': 'completed',
-                    'data': enriched_data
+                    'id': entry_id,
+                    'url': url,
+                    'metadata': metadata,
+                    'risk_score': 0.5,
+                    'pattern_type': 'unknown',
+                    'last_analyzed': datetime.utcnow().isoformat()
                 })
             
-            return enriched_data
+            return metadata
             
         except Exception as e:
             logger.error(f"Error enriching entry for URL {url}: {str(e)}")
             return {
-                "domain": domain,
-                "ip_address": None,
-                "port": port,
-                "path": path,
-                "page_title": None,
-                "service_type": None,
-                "has_captcha": 0,
-                "has_mfa": 0,
-                "is_secure": 1 if is_secure else 0,
-                "status_code": None,
-                "tags": tags,
-                "extra_metadata": {"error": str(e)}
+                'domain': domain,
+                'ip_address': None,
+                'port': port,
+                'path': path,
+                'page_title': None,
+                'service_type': None,
+                'hasCaptcha': False,
+                'hasMfa': False,
+                'isSecure': is_secure,
+                'status': None,
+                'tags': [],
+                'breach_info': {
+                    'is_breached': False,
+                    'total_breaches': 0,
+                    'total_pwned': 0,
+                    'latest_breach': None,
+                    'data_classes': [],
+                    'breaches': []
+                }
             }
 
     async def _resolve_domain(self, domain: str) -> Dict[str, Any]:
@@ -455,88 +484,206 @@ class DataEnrichmentService:
         return any(re.match(pattern, ip_or_domain) for pattern in local_patterns) 
 
     async def analyze_url(self, url: str) -> Dict[str, Any]:
-        """Analyze URL and check breach status"""
-        enriched_data = await self.enrich_entry(url)
-        if enriched_data and enriched_data.get('domain'):
-            domain = enriched_data['domain']
-            is_breached = await self._check_breach_status(domain)
-            
-            if is_breached and domain in self.breach_cache:
-                breach_info = self.breach_cache[domain]
-                enriched_data['tags'] = enriched_data.get('tags', []) + ['breached']
-                enriched_data['extra_metadata']['breach_info'] = {
-                    'total_breaches': len(breach_info['breaches']),
-                    'total_pwned': breach_info['total_pwned'],
-                    'latest_breach': breach_info['latest_breach'],
-                    'data_classes': breach_info['data_classes'],
-                    'breaches': breach_info['breaches']
-                }
-                
-        return enriched_data
+        """Analyze URL and check breach status - this is the main entry point for URL analysis"""
+        try:
+            if not url:
+                return {'breach_info': {}}
 
-    async def _check_breach_status(self, domain: str) -> bool:
-        """Check if a domain has been breached using HIBP API"""
+            if '//' in url:
+                domain = url.split('//')[-1]
+            else:
+                domain = url
+            
+            domain = domain.split('/')[0].lower()
+            domain = domain.split('?')[0]
+            domain = domain.split('#')[0]
+            domain = domain.split('@')[-1]
+            domain = domain.split(':')[0]
+            domain = domain.strip('.')
+            
+            if domain.startswith('www.'):
+                domain = domain[4:]
+            
+            domain_parts = domain.split('.')
+            if len(domain_parts) > 2:
+                domain = '.'.join(domain_parts[-2:])
+
+            breach_info = await self._check_breach_status(domain)
+            
+            tags = []
+            
+            if breach_info.get('tags'):
+                tags.extend(breach_info['tags'])
+
+            if url.startswith('https://'):
+                tags.append('https')
+            else:
+                tags.append('http')
+
+            return {
+                'domain': domain,
+                'ip_address': None,
+                'port': None,
+                'path': None,
+                'page_title': None,
+                'service_type': None,
+                'has_captcha': 0,
+                'has_mfa': 0,
+                'is_secure': 1 if url.startswith('https://') else 0,
+                'status_code': None,
+                'tags': tags,
+                'breach_info': breach_info,
+                'extra_metadata': {
+                    'breach_details': breach_info,
+                    'breach_summary': {
+                        'total_breaches': len(breach_info.get('breaches', [])),
+                        'total_pwned': breach_info.get('total_pwned', 0),
+                        'latest_breach': breach_info.get('latest_breach'),
+                        'data_classes': breach_info.get('data_classes', [])
+                    }
+                }
+            }
+        except Exception as e:
+            logger.error(f"Error analyzing URL {url}: {str(e)}")
+            return {'breach_info': {}}
+
+    async def _wait_for_rate_limit(self):
+        """Ensure we don't exceed API rate limits"""
+        now = time.time()
+        time_since_last_call = now - self.last_api_call
+        if time_since_last_call < self.rate_limit_delay:
+            delay = self.rate_limit_delay - time_since_last_call
+            await asyncio.sleep(delay)
+        self.last_api_call = time.time()
+
+    async def _check_breach_status(self, domain: str) -> Dict[str, Any]:
+        """Check if a domain has been breached using HIBP public breach data"""
         try:
             if not domain or not isinstance(domain, str):
-                return False
+                return {}
 
+            if '//' in domain:
+                domain = domain.split('//')[-1]
             domain = domain.split('/')[0].lower()
-            if not re.match(r'^[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,}$', domain):
-                return False
+            domain = domain.split('?')[0]
+            domain = domain.split('#')[0]
+            domain = domain.split('@')[-1]
+            domain = domain.split(':')[0]
+            domain = domain.strip('.')
+            
+            if domain.startswith('www.'):
+                domain = domain[4:]
+            
+            domain_parts = domain.split('.')
+            if len(domain_parts) > 2:
+                domains_to_check = [
+                    domain,
+                    '.'.join(domain_parts[-2:]),
+                ]
+            else:
+                domains_to_check = [domain]
+            
+            logger.info(f"Checking breach status for domains: {domains_to_check}")
+            
+            if not any(re.match(r'^[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,}$', d) for d in domains_to_check):
+                logger.warning(f"Invalid domain format: {domain}")
+                return {}
 
             now = datetime.utcnow()
-            if domain in self.breach_cache:
-                cache_time = self.last_breach_check.get(domain)
-                if cache_time and (now - cache_time).total_seconds() < 3600:
-                    return bool(self.breach_cache[domain].get('breaches'))
+            for d in domains_to_check:
+                if d in self.breach_cache:
+                    cache_time = self.last_breach_check.get(d)
+                    if cache_time and (now - cache_time).total_seconds() < 3600:
+                        logger.info(f"Using cached breach info for {d}")
+                        return self.breach_cache[d]
 
             if len(self.last_breach_check) > 100:
                 self._cleanup_cache(now)
 
+            breach_info = {
+                'breaches': [],
+                'total_pwned': 0,
+                'latest_breach': None,
+                'data_classes': [],
+                'tags': []
+            }
+
+            logger.info(f"Making HIBP API request for domains: {domains_to_check}")
             async with self.session.get(
-                f'https://haveibeenpwned.com/api/v3/breaches?domain={domain}',
-                headers={'User-Agent': 'SecureVision-Enrichment'}
+                f"https://haveibeenpwned.com/api/v2/breaches",
+                headers={
+                    'User-Agent': 'SecureVision-Enrichment',
+                    'Accept': 'application/json'
+                }
             ) as response:
                 if response.status == 200:
-                    breaches = await response.json()
-                    
-                    breach_info = {
-                        'breaches': [],
-                        'total_pwned': 0,
-                        'latest_breach': None,
-                        'data_classes': set()
-                    }
-
-                    for breach in breaches:
-                        breach_info['breaches'].append({
-                            'name': breach.get('Name'),
-                            'title': breach.get('Title'),
-                            'breach_date': breach.get('BreachDate'),
-                            'pwn_count': breach.get('PwnCount', 0),
-                            'data_classes': breach.get('DataClasses', []),
-                            'is_verified': breach.get('IsVerified', False),
-                            'is_sensitive': breach.get('IsSensitive', False)
-                        })
-                        breach_info['total_pwned'] += breach.get('PwnCount', 0)
-                        breach_info['data_classes'].update(breach.get('DataClasses', []))
+                    try:
+                        all_breaches = await response.json()
+                        logger.info(f"Got {len(all_breaches)} total breaches from HIBP")
                         
-                        breach_date = breach.get('BreachDate')
-                        if breach_date and (not breach_info['latest_breach'] or breach_date > breach_info['latest_breach']):
-                            breach_info['latest_breach'] = breach_date
+                        domain_breaches = []
+                        for d in domains_to_check:
+                            domain_breaches.extend([
+                                b for b in all_breaches 
+                                if (d == b.get('Domain', '').lower() or
+                                    d.endswith('.' + b.get('Domain', '').lower()) or
+                                    b.get('Domain', '').lower().endswith('.' + d))
+                            ])
+                        
+                        domain_breaches = list({b['Name']: b for b in domain_breaches}.values())
+                        
+                        logger.info(f"Found {len(domain_breaches)} breaches for domains {domains_to_check}")
+                        
+                        if domain_breaches:
+                            total_pwned = sum(b.get('PwnCount', 0) for b in domain_breaches)
+                            latest_date = max(b.get('BreachDate', '1970-01-01') for b in domain_breaches)
+                            all_data_classes = set()
+                            
+                            for breach in domain_breaches:
+                                breach_info['breaches'].append({
+                                    'name': breach.get('Name'),
+                                    'title': breach.get('Title'),
+                                    'breach_date': breach.get('BreachDate'),
+                                    'pwn_count': breach.get('PwnCount', 0),
+                                    'data_classes': breach.get('DataClasses', []),
+                                    'is_verified': breach.get('IsVerified', False),
+                                    'is_sensitive': breach.get('IsSensitive', False),
+                                    'description': breach.get('Description', '')
+                                })
+                                all_data_classes.update(breach.get('DataClasses', []))
+                            
+                            breach_info['total_pwned'] = total_pwned
+                            breach_info['latest_breach'] = latest_date
+                            breach_info['data_classes'] = list(all_data_classes)
+                            breach_info['tags'] = ['breached']
+                            
+                            logger.info(f"Breach details for {domain}: {total_pwned} accounts pwned, latest breach on {latest_date}")
 
-                    breach_info['data_classes'] = list(breach_info['data_classes'])
-                    
-                    self.breach_cache[domain] = breach_info
-                    self.last_breach_check[domain] = now
-                    
-                    return bool(breach_info['breaches'])
+                            if any(b.get('is_sensitive', False) for b in domain_breaches):
+                                breach_info['tags'].append('sensitive-breach')
+                                logger.info(f"Added sensitive-breach tag for {domain}")
+                            if total_pwned > 1000000:
+                                breach_info['tags'].append('major-breach')
+                                logger.info(f"Added major-breach tag for {domain} ({total_pwned} accounts)")
+                            if any('Passwords' in b.get('DataClasses', []) for b in domain_breaches):
+                                breach_info['tags'].append('password-breach')
+                                logger.info(f"Added password-breach tag for {domain}")
+                        else:
+                            logger.info(f"No breaches found for domain {domain}")
+                    except Exception as e:
+                        logger.error(f"Error parsing HIBP response for {domain}: {str(e)}")
                 else:
-                    logger.warning(f"HIBP API returned status {response.status} for domain {domain}")
-                    return False
+                    logger.error(f"HIBP API returned status {response.status} for domain {domain}")
+
+                self.breach_cache[domain] = breach_info
+                self.last_breach_check[domain] = now
+                
+                logger.info(f"Final breach info for {domain}: {breach_info}")
+                return breach_info
 
         except Exception as e:
             logger.error(f"Error checking breach status for domain {domain}: {str(e)}")
-            return False
+            return {}
 
     def _cleanup_cache(self, current_time: datetime) -> None:
         """Clean up old cache entries"""
@@ -549,3 +696,49 @@ class DataEnrichmentService:
             k: v for k, v in self.breach_cache.items() 
             if k in self.last_breach_check
         } 
+
+
+# TODO: Get this to a centralized config component, probably somewhere in core? But that would break the self-containment aspect
+@dataclass
+class WorkerConfig:
+    MQTT_URL: str = os.getenv("MQTT_URL", "ssl://localhost:8080")
+    MQTT_USERNAME: str = os.getenv("MQTT_USERNAME", "admin")
+    MQTT_PASSWORD: str = os.getenv("MQTT_PASSWORD", "admin")
+    API_URL: str = os.getenv("API_URL", "http://localhost:8000/api/v1")
+
+class DataEnrichmentWorker:
+    def __init__(self):
+        config = WorkerConfig()
+
+        parsed_mqtt_url = urlparse(config.MQTT_URL)
+
+        self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        self._client.on_connect = self._on_connect
+        self._client.on_message = self._on_message
+        self._client.username_pw_set(config.MQTT_USERNAME, config.MQTT_PASSWORD)
+        self._client.tls_set()
+        self._client.connect(parsed_mqtt_url.hostname, parsed_mqtt_url.port, 60)
+        self._client.loop_forever()
+
+    def _on_connect(self, client, userdata, flags, reason_code, properties=None):
+        logger.info("Connected with result code %s.", reason_code)
+        # Subscribe to all URL parse updates
+        client.subscribe("urls/parsed/#")
+
+    def _on_message(self, client, userdata, message):
+        try:
+            # Parse the JSON message
+            url_data = json.loads(message.payload.decode())
+            logger.info("Received batch: %s:", url_data['url'])
+            logger.info("Message payload: %s", message.payload)
+            # TODO: Send the URL data to the enrichment service
+            logger.info("-------------------")
+        except Exception as e:
+            logger.error("Error processing message: %s", str(e))
+
+def run_worker():
+    logger.info("STARTING WORKER.")
+    worker = DataEnrichmentWorker()
+
+if __name__ == "__main__":
+    run_worker()

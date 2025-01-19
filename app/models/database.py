@@ -5,6 +5,7 @@ from datetime import datetime
 import os
 from dotenv import load_dotenv
 import logging
+import json
 
 load_dotenv()
 
@@ -65,6 +66,14 @@ class BreachEntry(Base):
     is_secure = Column(Integer, default=0)
     status_code = Column(Integer)
     
+    # Breach status fields
+    had_breach = Column(Integer, default=0)
+    breach_count = Column(Integer, default=0)
+    total_pwned = Column(BigInteger, default=0)
+    latest_breach = Column(DateTime)
+    data_classes = Column(JSON)
+    breach_details = Column(JSON)
+    
     tags = Column(JSON)
     extra_metadata = Column(JSON)
     
@@ -77,6 +86,28 @@ class BreachEntry(Base):
     )
 
     def to_dict(self):
+        # Handle JSON fields that might be strings
+        try:
+            data_classes = self.data_classes if isinstance(self.data_classes, list) else (
+                json.loads(self.data_classes) if self.data_classes else []
+            )
+        except:
+            data_classes = []
+
+        try:
+            breach_details = self.breach_details if isinstance(self.breach_details, list) else (
+                json.loads(self.breach_details) if self.breach_details else []
+            )
+        except:
+            breach_details = []
+
+        try:
+            tags = self.tags if isinstance(self.tags, list) else (
+                json.loads(self.tags) if self.tags else []
+            )
+        except:
+            tags = []
+
         return {
             "id": self.id,
             "url": self.url,
@@ -94,9 +125,17 @@ class BreachEntry(Base):
                 "status": self.status_code,
                 "hasCaptcha": bool(self.has_captcha),
                 "hasMfa": bool(self.has_mfa),
-                "isSecure": bool(self.is_secure)
+                "isSecure": bool(self.is_secure),
+                "breach_info": {
+                    "is_breached": bool(self.had_breach),
+                    "total_breaches": self.breach_count or 0,
+                    "total_pwned": self.total_pwned or 0,
+                    "latest_breach": self.latest_breach.isoformat() if self.latest_breach else None,
+                    "data_classes": data_classes,
+                    "breaches": breach_details
+                },
+                "tags": tags
             },
-            "tags": self.tags or [],
             "last_analyzed": self.last_checked.isoformat() if self.last_checked else None,
             "extra_metadata": self.extra_metadata or {}
         }

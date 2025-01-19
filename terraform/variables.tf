@@ -10,6 +10,16 @@ variable "client_image_name" {
   default = "securevision-client:latest"
 }
 
+variable "worker_image_name" {
+  type    = string
+  default = "securevision-data-worker:latest"
+}
+
+variable "worker_nodes" {
+  type    = string
+  default = 4
+}
+
 # Solace Broker Variables
 
 variable "solace_username" {

@@ -43,7 +43,6 @@ export function useBreachSearch({
 
   const handleWebSocketMessage = useCallback((event: MessageEvent) => {
     try {
-      // Handle ping messages
       if (event.data === "ping") {
         if (wsRef.current?.readyState === WebSocket.OPEN) {
           wsRef.current.send("pong");
@@ -54,84 +53,79 @@ export function useBreachSearch({
       const message = JSON.parse(event.data);
       console.log('Processed WebSocket message:', message);
       
-      if (message.type === 'enrichment_update') {
-        const { entry_id, status, current_step, data } = message;
-        console.log('Processing enrichment update for entry:', entry_id, status, current_step);
+      if (message.type === 'enrichment_update' || !message.type) {
+        const entry_id = message.type === 'enrichment_update' ? message.entry_id : message.id;
+        const status = message.type === 'enrichment_update' ? message.status : 'processing';
+        const current_step = message.type === 'enrichment_update' ? message.current_step : null;
+        const data = message.type === 'enrichment_update' ? message.data : message;
+        
+        console.log('Processing entry update:', { entry_id, status, current_step });
         
         setEntries(prevEntries => {
-          // Find if entry exists in current entries
           const entryIndex = prevEntries.findIndex(e => e.id === entry_id);
+          let updatedEntry;
           
           if (entryIndex === -1) {
-            // If entry doesn't exist in current view, just update the map
-            const existingEntry = entriesMapRef.current.get(entry_id);
-            if (existingEntry) {
-              const updatedEntry = {
-                ...existingEntry,
-                ...data,
-                metadata: {
-                  ...existingEntry.metadata,
-                  ...data,
-                  tags: data?.tags ? 
-                    Array.from(new Set([
-                      ...(data.tags || []),
-                      ...(existingEntry.metadata?.tags || [])
-                    ])) : 
-                    existingEntry.metadata?.tags
+            updatedEntry = {
+              ...data,
+              id: entry_id,
+              enrichment_status: status || 'processing',
+              current_enrichment_step: current_step,
+              timestamp: new Date().toISOString(),
+              metadata: {
+                ...(data.metadata || {}),
+                service_type: data.metadata?.service_type || 'Unknown',
+                breach_info: {
+                  is_breached: data.metadata?.breach_info?.is_breached || false,
+                  total_breaches: data.metadata?.breach_info?.total_breaches || 0,
+                  total_pwned: data.metadata?.breach_info?.total_pwned || 0,
+                  latest_breach: data.metadata?.breach_info?.latest_breach || null,
+                  data_classes: data.metadata?.breach_info?.data_classes || [],
+                  breaches: data.metadata?.breach_info?.breaches || []
                 },
-                enrichment_status: status || 'processing',
-                current_enrichment_step: current_step,
-                timestamp: data.timestamp || new Date().toISOString()
-              };
-              entriesMapRef.current.set(entry_id, updatedEntry);
+                tags: data.metadata?.tags || []
+              }
+            };
+            
+            entriesMapRef.current.set(entry_id, updatedEntry);
+            
+            if (searchResultsRef.current.size === 0 || searchResultsRef.current.has(entry_id)) {
+              return [updatedEntry, ...prevEntries];
             }
             return prevEntries;
-          }
-
-          // Update the entry in the current view
-          const existingEntry = prevEntries[entryIndex];
-          const updatedEntry = {
-            ...existingEntry,
-            ...data,
-            metadata: {
-              ...existingEntry.metadata,
+          } else {
+            const existingEntry = prevEntries[entryIndex];
+            updatedEntry = {
+              ...existingEntry,
               ...data,
-              tags: data?.tags ? 
-                Array.from(new Set([
-                  ...(data.tags || []),
+              metadata: {
+                ...existingEntry.metadata,
+                ...(data.metadata || {}),
+                service_type: data.metadata?.service_type || existingEntry.metadata?.service_type || 'Unknown',
+                breach_info: {
+                  is_breached: data.metadata?.breach_info?.is_breached ?? existingEntry.metadata?.breach_info?.is_breached ?? false,
+                  total_breaches: data.metadata?.breach_info?.total_breaches ?? existingEntry.metadata?.breach_info?.total_breaches ?? 0,
+                  total_pwned: data.metadata?.breach_info?.total_pwned ?? existingEntry.metadata?.breach_info?.total_pwned ?? 0,
+                  latest_breach: data.metadata?.breach_info?.latest_breach ?? existingEntry.metadata?.breach_info?.latest_breach ?? null,
+                  data_classes: data.metadata?.breach_info?.data_classes ?? existingEntry.metadata?.breach_info?.data_classes ?? [],
+                  breaches: data.metadata?.breach_info?.breaches ?? existingEntry.metadata?.breach_info?.breaches ?? []
+                },
+                tags: Array.from(new Set([
+                  ...(data.metadata?.tags || []),
                   ...(existingEntry.metadata?.tags || [])
-                ])) : 
-                existingEntry.metadata?.tags
-            },
-            enrichment_status: status || 'processing',
-            current_enrichment_step: current_step,
-            timestamp: data.timestamp || new Date().toISOString()
-          };
-          
-          // Update the map
-          entriesMapRef.current.set(entry_id, updatedEntry);
-          
-          // Create new array with updated entry
-          const newEntries = [...prevEntries];
-          newEntries[entryIndex] = updatedEntry;
-          
-          // Sort entries if needed
-          return newEntries.sort((a, b) => {
-            // Sort by timestamp (newest first)
-            const aTime = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-            const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-            if (aTime !== bTime) return bTime - aTime;
-            
-            // Then by enrichment status
-            const statusPriority = {
-              'processing': 0,
-              'pending': 1,
-              'completed': 2
+                ]))
+              },
+              enrichment_status: status || existingEntry.enrichment_status || 'processing',
+              current_enrichment_step: current_step,
+              timestamp: data.timestamp || existingEntry.timestamp || new Date().toISOString()
             };
-            const aStatus = statusPriority[a.enrichment_status || 'completed'] || 3;
-            const bStatus = statusPriority[b.enrichment_status || 'completed'] || 3;
-            return aStatus - bStatus;
-          });
+            
+            entriesMapRef.current.set(entry_id, updatedEntry);
+            
+            const newEntries = [...prevEntries];
+            newEntries[entryIndex] = updatedEntry;
+            return newEntries;
+          }
         });
       } else if (message.type === 'new_entry') {
         const entry = message.data;
@@ -145,6 +139,14 @@ export function useBreachSearch({
             timestamp: new Date().toISOString(),
             metadata: {
               ...entry.metadata,
+              breach_info: entry.metadata?.breach_info || {
+                is_breached: false,
+                total_breaches: 0,
+                total_pwned: 0,
+                latest_breach: null,
+                data_classes: [],
+                breaches: []
+              },
               tags: entry.metadata?.tags || []
             }
           };
@@ -152,7 +154,6 @@ export function useBreachSearch({
           entriesMapRef.current.set(entry.id, newEntry);
           
           setEntries(prevEntries => {
-            // Only add to current view if it matches current search/filter criteria
             if (searchResultsRef.current.size > 0 && !searchResultsRef.current.has(entry.id)) {
               return prevEntries;
             }
@@ -188,12 +189,10 @@ export function useBreachSearch({
         return true;
       })
       .sort((a, b) => {
-        // Sort by timestamp (newest first) and then by enrichment status
         const aTime = a.timestamp ? new Date(a.timestamp).getTime() : 0;
         const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0;
         if (aTime !== bTime) return bTime - aTime;
         
-        // Prioritize entries being processed
         const statusPriority = {
           'processing': 0,
           'pending': 1,
@@ -235,117 +234,47 @@ export function useBreachSearch({
           console.log('WebSocket connected');
           setIsConnected(true);
           reconnectAttemptsRef.current = 0;
+          
+          // Clear any existing reconnect timeout
+          if (reconnectTimeoutRef.current) {
+            clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = undefined;
+          }
         };
 
-        ws.onmessage = (event) => {
-          console.log('WebSocket message received:', event.data);
-          if (event.data === 'ping') {
-            ws.send('pong');
-            return;
-          }
-          try {
-            const message = JSON.parse(event.data);
-            console.log('Parsed WebSocket message:', message);
+        ws.onclose = (event) => {
+          console.log('WebSocket closed:', event);
+          setIsConnected(false);
+          
+          if (mountedRef.current && reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+            const backoffTime = getBackoffTime(reconnectAttemptsRef.current);
+            console.log(`Reconnecting in ${backoffTime}ms (attempt ${reconnectAttemptsRef.current + 1}/${MAX_RECONNECT_ATTEMPTS})`);
             
-            if (message.type === 'enrichment_update') {
-              const { entry_id, status, current_step, data } = message;
-              console.log('Enrichment update:', { entry_id, status, current_step, data });
-              
-              // Update the entry in the map
-              const existingEntry = entriesMapRef.current.get(entry_id);
-              if (existingEntry) {
-                const updatedEntry = {
-                  ...existingEntry,
-                  ...data,
-                  metadata: {
-                    ...existingEntry.metadata,
-                    ...data,
-                    tags: data?.tags ? 
-                      Array.from(new Set([
-                        ...(data.tags || []),
-                        ...(existingEntry.metadata?.tags || [])
-                      ])) : 
-                      existingEntry.metadata?.tags
-                  },
-                  enrichment_status: status || 'processing',
-                  current_enrichment_step: current_step,
-                  timestamp: data.timestamp || new Date().toISOString()
-                };
-                
-                entriesMapRef.current.set(entry_id, updatedEntry);
-                console.log('Updated entry in map:', updatedEntry);
-                
-                // Force a re-render with the updated entry
-                setEntries(prevEntries => {
-                  const entryIndex = prevEntries.findIndex(e => e.id === entry_id);
-                  if (entryIndex === -1) return prevEntries;
-                  
-                  const newEntries = [...prevEntries];
-                  newEntries[entryIndex] = updatedEntry;
-                  console.log('Updating entries state with:', newEntries);
-                  return newEntries;
-                });
-              }
-            } else if (message.type === 'new_entry') {
-              const entry = message.data;
-              console.log('New entry received:', entry);
-              
-              if (!entriesMapRef.current.has(entry.id)) {
-                const newEntry = {
-                  ...entry,
-                  enrichment_status: 'pending',
-                  current_enrichment_step: null,
-                  timestamp: new Date().toISOString(),
-                  metadata: {
-                    ...entry.metadata,
-                    tags: entry.metadata?.tags || []
-                  }
-                };
-                
-                entriesMapRef.current.set(entry.id, newEntry);
-                console.log('Added new entry to map:', newEntry);
-                
-                // Add to current view if no search is active
-                if (searchResultsRef.current.size === 0) {
-                  setEntries(prevEntries => {
-                    const newEntries = [newEntry, ...prevEntries];
-                    console.log('Adding new entry to view:', newEntries);
-                    return newEntries;
-                  });
-                  setTotalEntries(prev => prev + 1);
-                }
-              }
-            }
-          } catch (error) {
-            console.error('Error processing WebSocket message:', error);
+            reconnectTimeoutRef.current = setTimeout(() => {
+              reconnectAttemptsRef.current++;
+              connectWebSocket();
+            }, backoffTime);
           }
         };
 
         ws.onerror = (error) => {
-          if (!mountedRef.current) return;
           console.error('WebSocket error:', error);
-          setIsConnected(false);
-        };
-
-        ws.onclose = (event) => {
-          if (!mountedRef.current) return;
-          console.log('WebSocket closed:', event.code, event.reason);
-          setIsConnected(false);
-          wsRef.current = null;
-          
-          if (mountedRef.current && event.code !== 1000 && reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
-            const backoffTime = getBackoffTime(reconnectAttemptsRef.current);
-            reconnectTimeoutRef.current = setTimeout(() => {
-              if (mountedRef.current) {
-                reconnectAttemptsRef.current += 1;
-                connectWebSocket();
-              }
-            }, backoffTime);
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.close(1000);
           }
         };
+
+        ws.onmessage = handleWebSocketMessage;
+        
       } catch (error) {
-        console.error('WebSocket connection error:', error);
-        setIsConnected(false);
+        console.error('Error establishing WebSocket connection:', error);
+        if (mountedRef.current && reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+          const backoffTime = getBackoffTime(reconnectAttemptsRef.current);
+          reconnectTimeoutRef.current = setTimeout(() => {
+            reconnectAttemptsRef.current++;
+            connectWebSocket();
+          }, backoffTime);
+        }
       }
     };
 
@@ -358,6 +287,7 @@ export function useBreachSearch({
       }
       if (wsRef.current) {
         wsRef.current.close(1000);
+        wsRef.current = null;
       }
     };
   }, []);
@@ -372,7 +302,6 @@ export function useBreachSearch({
       abortControllerRef.current.abort();
     }
     
-    // Skip if the same search is already in progress
     const searchKey = JSON.stringify({ query, filters, page });
     if (searchKey === lastSearchRef.current) {
       return;
@@ -385,7 +314,6 @@ export function useBreachSearch({
     try {
       const { entries: newEntries, total } = await searchBreachData(query, filters, page, pageSize);
       
-      // Skip update if search parameters changed during request
       if (searchKey !== lastSearchRef.current) {
         return;
       }
@@ -438,7 +366,6 @@ export function useBreachSearch({
     }
   }, [pageSize, updateEntriesFromMap]);
 
-  // Add lastSearchRef to track the most recent search
   const lastSearchRef = useRef<string | null>(null);
 
   const debouncedSearch = useCallback(
@@ -451,9 +378,34 @@ export function useBreachSearch({
     [performSearch, debounceMs]
   );
 
-  const search = useCallback((query: string, filters: SearchFilters) => {
-    debouncedSearch(query, filters);
-  }, [debouncedSearch]);
+  const search = useCallback(async (query: string, filters: SearchFilters) => {
+    setIsLoading(true);
+    setCurrentQuery(query);
+    setCurrentFilters(filters);
+    setCurrentPage(1);
+    
+    try {
+      const response = await searchBreachData(query, filters);
+      const entries = response.entries || [];
+      
+      searchResultsRef.current = new Set(entries.map(entry => entry.id));
+      
+      entries.forEach(entry => {
+        entriesMapRef.current.set(entry.id, entry);
+      });
+      
+      setEntries(entries);
+      setTotalEntries(response.total || entries.length);
+      setHasMore(response.has_more || false);
+    } catch (error) {
+      console.error('Search failed:', error);
+      setEntries([]);
+      setTotalEntries(0);
+      setHasMore(false);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   const loadMore = useCallback(() => {
     if (!isLoading && hasMore) {
@@ -472,4 +424,30 @@ export function useBreachSearch({
     search,
     loadMore
   };
-} 
+}
+
+const matchesFilters = (entry: BreachEntry, filters: SearchFilters): boolean => {
+  for (const [key, value] of Object.entries(filters)) {
+    if (value === undefined) continue;
+    
+    if (key === 'domain' && value && entry.metadata?.domain) {
+      if (!entry.metadata.domain.toLowerCase().includes(value.toLowerCase())) return false;
+    } else if (key === 'port' && value !== undefined) {
+      if (entry.metadata?.port !== value) return false;
+    } else if (key === 'has_captcha' && value !== undefined) {
+      if (Boolean(entry.metadata?.hasCaptcha) !== value) return false;
+    } else if (key === 'has_mfa' && value !== undefined) {
+      if (Boolean(entry.metadata?.hasMfa) !== value) return false;
+    } else if (key === 'is_secure' && value !== undefined) {
+      if (Boolean(entry.metadata?.isSecure) !== value) return false;
+    } else if (key === 'risk_score_min' && value !== undefined) {
+      if ((entry.risk_score || 0) < value) return false;
+    } else if (key === 'risk_score_max' && value !== undefined) {
+      if ((entry.risk_score || 0) > value) return false;
+    } else if (key === 'application' && Array.isArray(value) && value.length > 0) {
+      const serviceType = entry.metadata?.service_type?.toLowerCase();
+      if (!serviceType || !value.some(app => serviceType.includes(app.toLowerCase()))) return false;
+    }
+  }
+  return true;
+}; 

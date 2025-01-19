@@ -1,313 +1,260 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Button } from "@/components/ui/button";
-import { Sheet } from "@/components/ui/sheet";
+import { Card } from "@/components/ui/card";
+import { useBreachSearch } from "@/hooks/useBreachSearch";
 import { BreachTable } from "@/components/breach-analysis/table/breach-table";
-import { BreachStats } from "@/components/breach-analysis/stats/breach-stats";
+import { Shield, AlertTriangle, Server, Network, Lock, Globe, FileDown } from "lucide-react";
+import { useMemo, useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
 import { AdvancedFilters } from "@/components/breach-analysis/filters/advanced-filters";
 import { UploadDialog } from "@/components/breach-analysis/layout/upload-dialog";
-import { Navbar } from "@/components/breach-analysis/layout/navbar";
 import { SearchFilters } from "@/types";
-import { useBreachSearch } from "@/hooks/useBreachSearch";
-import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { 
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle 
-} from "@/components/ui/card";
-import { 
-  FileDown, 
-  AlertTriangle,
-  Clock,
-  KeyRound,
-  ShieldCheck,
-  Shield,
-  Globe,
-  Server,
-  Network,
-  CheckCircle2,
-  XCircle,
-  Pause
-} from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 
 export default function Home() {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [activeSearchType, setActiveSearchType] = useState<'domain' | 'application' | 'port' | 'path'>('domain');
-  const [activeFilters, setActiveFilters] = useState<SearchFilters>({});
   const [tempFilters, setTempFilters] = useState<SearchFilters>({});
+  const { entries, isLoading, hasMore, loadMore, search } = useBreachSearch();
 
-  const {
-    entries,
-    isLoading,
-    totalEntries,
-    hasMore,
-    search,
-    loadMore
-  } = useBreachSearch();
-
+  // Load initial data when component mounts
   useEffect(() => {
     search("", {});
   }, [search]);
 
   const handleApplyFilters = () => {
-    setActiveFilters(tempFilters);
-    search(searchQuery, tempFilters);
+    search("", tempFilters);
   };
 
   const handleResetFilters = () => {
     setTempFilters({});
-    setActiveFilters({});
-    search(searchQuery, {});
+    search("", {});
   };
 
   const handleUploadComplete = () => {
     // Refresh the data after successful upload
-    search(searchQuery, activeFilters);
+    search("", tempFilters);
   };
 
+  const downloadCSV = () => {
+    const headers = [
+      "URL",
+      "Username",
+      "Password",
+      "Domain",
+      "IP Address",
+      "Port",
+      "Risk Score",
+      "Pattern Type",
+      "Service Type",
+      "Status",
+      "Has CAPTCHA",
+      "Has MFA",
+      "Is Secure",
+      "Tags",
+    ];
+
+    const rows = entries.map((entry) => [
+      entry.url,
+      entry.username,
+      entry.password,
+      entry.metadata.domain,
+      entry.metadata.ip_address,
+      entry.metadata.port,
+      entry.risk_score,
+      entry.pattern_type,
+      entry.metadata.service_type,
+      entry.metadata.status,
+      entry.metadata.hasCaptcha ? "Yes" : "No",
+      entry.metadata.hasMfa ? "Yes" : "No",
+      entry.metadata.isSecure ? "Yes" : "No",
+      entry.metadata.tags?.join(", "),
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map((row) => row.map((cell) => `"${cell || ""}"`).join(",")),
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute("download", `breach_data_${new Date().toISOString()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Calculate real-time statistics
+  const stats = useMemo(() => {
+    const activeServices = entries.filter(entry => entry.metadata?.status === 200).length;
+    const criticalEndpoints = entries.filter(entry => entry.risk_score >= 7).length;
+    const totalDomains = new Set(entries.map(entry => entry.metadata?.domain).filter(Boolean)).size;
+    const securedEndpoints = entries.filter(entry => 
+      entry.metadata?.isSecure || 
+      entry.metadata?.hasMfa || 
+      entry.metadata?.hasCaptcha
+    ).length;
+    const averageRiskScore = entries.length > 0 
+      ? (entries.reduce((sum, entry) => sum + (entry.risk_score || 0), 0) / entries.length).toFixed(1)
+      : "0.0";
+    const networkCoverage = entries.length > 0
+      ? ((securedEndpoints / entries.length) * 100).toFixed(1)
+      : "0.0";
+
+    return {
+      activeServices,
+      criticalEndpoints,
+      totalDomains,
+      securedEndpoints,
+      averageRiskScore,
+      networkCoverage,
+      securedPercentage: entries.length > 0 
+        ? ((securedEndpoints / entries.length) * 100).toFixed(1)
+        : "0.0"
+    };
+  }, [entries]);
+
   return (
-    <div className="min-h-screen flex bg-zinc-950 text-zinc-100">
-      <aside className="w-72 border-r border-zinc-800/50 bg-black/20 backdrop-blur-sm">
-        <ScrollArea className="h-screen">
-          <div className="p-6 space-y-6">
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-mono tracking-tight text-zinc-100">Security Filters</h2>
-                <Badge variant="outline" className="font-mono text-xs border-zinc-800 bg-black/50 text-zinc-300">6 filters</Badge>
+    <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-zinc-950">
+      <div className="p-6 space-y-6">
+        {/* Stats Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <Card className="bg-black/40 border-zinc-800/50 backdrop-blur-sm group hover:border-emerald-500/20 transition-colors">
+            <div className="p-6">
+              <div className="flex items-start justify-between">
+                <div className="space-y-2">
+                  <div className="text-xs font-mono text-zinc-500 tracking-wider">ACTIVE SERVICES</div>
+                  <div className="text-2xl font-mono font-bold text-zinc-100">{stats.activeServices}</div>
+                </div>
+                <div className="rounded-lg bg-emerald-500/10 p-2 group-hover:bg-emerald-500/20 transition-colors">
+                  <Server className="h-4 w-4 text-emerald-400" />
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start font-mono border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 hover:border-zinc-700 group text-zinc-400" 
-                  size="sm"
-                >
-                  <AlertTriangle className="mr-2 h-4 w-4 text-red-500 group-hover:text-red-400" />
-                  <span className="font-mono">Critical Services</span>
-                  <Badge variant="destructive" className="ml-auto font-mono bg-red-950/50 text-red-200">2.1k</Badge>
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start font-mono border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 hover:border-zinc-700 group text-zinc-400" 
-                  size="sm"
-                >
-                  <Shield className="mr-2 h-4 w-4 text-amber-500 group-hover:text-amber-400" />
-                  <span className="font-mono">MFA Protected</span>
-                  <Badge variant="outline" className="ml-auto font-mono border-amber-900 bg-amber-950/30 text-zinc-100">856</Badge>
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start font-mono border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 hover:border-zinc-700 group text-zinc-400" 
-                  size="sm"
-                >
-                  <Server className="mr-2 h-4 w-4 text-purple-500 group-hover:text-purple-400" />
-                  <span className="font-mono">Admin Portals</span>
-                  <Badge variant="outline" className="ml-auto font-mono border-purple-900 bg-purple-950/30 text-zinc-100">432</Badge>
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start font-mono border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 hover:border-zinc-700 group text-zinc-400" 
-                  size="sm"
-                >
-                  <Network className="mr-2 h-4 w-4 text-blue-500 group-hover:text-blue-400" />
-                  <span className="font-mono">VPN Access</span>
-                  <Badge variant="outline" className="ml-auto font-mono border-blue-900 bg-blue-950/30 text-zinc-100">289</Badge>
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start font-mono border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 hover:border-zinc-700 group text-zinc-400" 
-                  size="sm"
-                >
-                  <Globe className="mr-2 h-4 w-4 text-emerald-500 group-hover:text-emerald-400" />
-                  <span className="font-mono">Public URLs</span>
-                  <Badge variant="outline" className="ml-auto font-mono border-emerald-900 bg-emerald-950/30 text-zinc-100">{totalEntries.toLocaleString()}</Badge>
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start font-mono border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 hover:border-zinc-700 group text-zinc-400" 
-                  size="sm"
-                >
-                  <XCircle className="mr-2 h-4 w-4 text-zinc-500 group-hover:text-zinc-400" />
-                  <span className="font-mono">Invalid URLs</span>
-                  <Badge variant="outline" className="ml-auto font-mono border-zinc-800 bg-black/40 text-zinc-300">{totalEntries.toLocaleString()}</Badge>
-                </Button>
+              <div className="mt-4 text-sm text-zinc-400 font-mono">
+                HTTP 200 Status
               </div>
             </div>
+          </Card>
 
-            <Separator className="my-6 bg-zinc-800/50" />
-
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-mono tracking-tight text-zinc-100">Service Types</h2>
-                <Badge variant="outline" className="font-mono text-xs border-zinc-800 bg-black/50 text-zinc-300">5 types</Badge>
+          <Card className="bg-black/40 border-zinc-800/50 backdrop-blur-sm group hover:border-red-500/20 transition-colors">
+            <div className="p-6">
+              <div className="flex items-start justify-between">
+                <div className="space-y-2">
+                  <div className="text-xs font-mono text-zinc-500 tracking-wider">CRITICAL ENDPOINTS</div>
+                  <div className="text-2xl font-mono font-bold text-zinc-100">{stats.criticalEndpoints}</div>
+                </div>
+                <div className="rounded-lg bg-red-500/10 p-2 group-hover:bg-red-500/20 transition-colors">
+                  <AlertTriangle className="h-4 w-4 text-red-400" />
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start font-mono border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 hover:border-zinc-700 group text-zinc-400" 
-                  size="sm"
-                >
-                  <Globe className="mr-2 h-4 w-4 text-blue-500 group-hover:text-blue-400" />
-                  <span className="font-mono">Remote Access</span>
-                  <Badge variant="outline" className="ml-auto font-mono border-zinc-800 bg-black/40 text-zinc-300">{totalEntries.toLocaleString()}</Badge>
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start font-mono border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 hover:border-zinc-700 group text-zinc-400" 
-                  size="sm"
-                >
-                  <Server className="mr-2 h-4 w-4 text-purple-500 group-hover:text-purple-400" />
-                  <span className="font-mono">Cloud Services</span>
-                  <Badge variant="outline" className="ml-auto font-mono border-zinc-800 bg-black/40 text-zinc-300">{totalEntries.toLocaleString()}</Badge>
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start font-mono border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 hover:border-zinc-700 group text-zinc-400" 
-                  size="sm"
-                >
-                  <Network className="mr-2 h-4 w-4 text-emerald-500 group-hover:text-emerald-400" />
-                  <span className="font-mono">Network Infrastructure</span>
-                  <Badge variant="outline" className="ml-auto font-mono border-zinc-800 bg-black/40 text-zinc-300">{totalEntries.toLocaleString()}</Badge>
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start font-mono border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 hover:border-zinc-700 group text-zinc-400" 
-                  size="sm"
-                >
-                  <Shield className="mr-2 h-4 w-4 text-amber-500 group-hover:text-amber-400" />
-                  <span className="font-mono">Security Systems</span>
-                  <Badge variant="outline" className="ml-auto font-mono border-zinc-800 bg-black/40 text-zinc-300">{totalEntries.toLocaleString()}</Badge>
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start font-mono border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 hover:border-zinc-700 group text-zinc-400" 
-                  size="sm"
-                >
-                  <Globe className="mr-2 h-4 w-4 text-red-500 group-hover:text-red-400" />
-                  <span className="font-mono">Critical Infrastructure</span>
-                  <Badge variant="outline" className="ml-auto font-mono border-zinc-800 bg-black/40 text-zinc-300">{totalEntries.toLocaleString()}</Badge>
-                </Button>
+              <div className="mt-4 text-sm text-zinc-400 font-mono">
+                Risk Score ≥ 7
               </div>
             </div>
+          </Card>
 
-            <Separator className="my-6 bg-zinc-800/50" />
-
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-mono tracking-tight text-zinc-100">Validation Status</h2>
-                <Badge variant="outline" className="font-mono text-xs border-zinc-800 bg-black/50 text-zinc-300">3 states</Badge>
+          <Card className="bg-black/40 border-zinc-800/50 backdrop-blur-sm group hover:border-blue-500/20 transition-colors">
+            <div className="p-6">
+              <div className="flex items-start justify-between">
+                <div className="space-y-2">
+                  <div className="text-xs font-mono text-zinc-500 tracking-wider">NETWORK COVERAGE</div>
+                  <div className="text-2xl font-mono font-bold text-zinc-100">{stats.networkCoverage}%</div>
+                </div>
+                <div className="rounded-lg bg-blue-500/10 p-2 group-hover:bg-blue-500/20 transition-colors">
+                  <Network className="h-4 w-4 text-blue-400" />
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start font-mono border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 hover:border-zinc-700 group text-zinc-400" 
-                  size="sm"
-                >
-                  <CheckCircle2 className="mr-2 h-4 w-4 text-emerald-500 group-hover:text-emerald-400" />
-                  <span className="font-mono">Verified</span>
-                  <Badge variant="outline" className="ml-auto font-mono border-zinc-800 bg-black/40 text-zinc-300">2.3k</Badge>
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start font-mono border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 hover:border-zinc-700 group text-zinc-400" 
-                  size="sm"
-                >
-                  <Clock className="mr-2 h-4 w-4 text-amber-500 group-hover:text-amber-400" />
-                  <span className="font-mono">Pending Verification</span>
-                  <Badge variant="outline" className="ml-auto font-mono border-zinc-800 bg-black/40 text-zinc-300">856</Badge>
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start font-mono border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 hover:border-zinc-700 group text-zinc-400" 
-                  size="sm"
-                >
-                  <XCircle className="mr-2 h-4 w-4 text-red-500 group-hover:text-red-400" />
-                  <span className="font-mono">Invalid/Unreachable</span>
-                  <Badge variant="outline" className="ml-auto font-mono border-zinc-800 bg-black/40 text-zinc-300">342</Badge>
-                </Button>
+              <div className="mt-4 text-sm text-zinc-400 font-mono">
+                Of total endpoints
               </div>
             </div>
-          </div>
-        </ScrollArea>
-      </aside>
+          </Card>
 
-      <div className="flex-1 flex flex-col bg-zinc-950/50 backdrop-blur-sm">
-        <Navbar 
-          searchQuery={searchQuery}
-          activeSearchType={activeSearchType}
-          onSearchChange={(query) => {
-            setSearchQuery(query);
-            search(query, activeFilters);
-          }}
-          onSearchTypeChange={setActiveSearchType}
-        />
-        <main className="flex-1 container mx-auto py-6 px-8 max-w-7xl space-y-6">
-          <BreachStats entries={entries} />
+          <Card className="bg-black/40 border-zinc-800/50 backdrop-blur-sm group hover:border-purple-500/20 transition-colors">
+            <div className="p-6">
+              <div className="flex items-start justify-between">
+                <div className="space-y-2">
+                  <div className="text-xs font-mono text-zinc-500 tracking-wider">DOMAINS MONITORED</div>
+                  <div className="text-2xl font-mono font-bold text-zinc-100">{stats.totalDomains}</div>
+                </div>
+                <div className="rounded-lg bg-purple-500/10 p-2 group-hover:bg-purple-500/20 transition-colors">
+                  <Globe className="h-4 w-4 text-purple-400" />
+                </div>
+              </div>
+              <div className="mt-4 text-sm text-zinc-400 font-mono">
+                Unique domains
+              </div>
+            </div>
+          </Card>
 
-          <Card className="border-zinc-800 bg-black/20 backdrop-blur-sm text-zinc-100">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+          <Card className="bg-black/40 border-zinc-800/50 backdrop-blur-sm group hover:border-yellow-500/20 transition-colors">
+            <div className="p-6">
+              <div className="flex items-start justify-between">
+                <div className="space-y-2">
+                  <div className="text-xs font-mono text-zinc-500 tracking-wider">AVERAGE RISK SCORE</div>
+                  <div className="text-2xl font-mono font-bold text-zinc-100">{stats.averageRiskScore}</div>
+                </div>
+                <div className="rounded-lg bg-yellow-500/10 p-2 group-hover:bg-yellow-500/20 transition-colors">
+                  <Shield className="h-4 w-4 text-yellow-400" />
+                </div>
+              </div>
+              <div className="mt-4 text-sm text-zinc-400 font-mono">
+                Across all endpoints
+              </div>
+            </div>
+          </Card>
+
+          <Card className="bg-black/40 border-zinc-800/50 backdrop-blur-sm group hover:border-indigo-500/20 transition-colors">
+            <div className="p-6">
+              <div className="flex items-start justify-between">
+                <div className="space-y-2">
+                  <div className="text-xs font-mono text-zinc-500 tracking-wider">SECURED ENDPOINTS</div>
+                  <div className="text-2xl font-mono font-bold text-zinc-100">{stats.securedPercentage}%</div>
+                </div>
+                <div className="rounded-lg bg-indigo-500/10 p-2 group-hover:bg-indigo-500/20 transition-colors">
+                  <Lock className="h-4 w-4 text-indigo-400" />
+                </div>
+              </div>
+              <div className="mt-4 text-sm text-zinc-400 font-mono">
+                HTTPS, MFA, or CAPTCHA
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        {/* Breach Table */}
+        <Card className="bg-black/40 border-zinc-800/50 backdrop-blur-sm">
+          <div className="p-6">
+            <div className="flex items-center justify-between mb-6">
               <div>
-                <CardTitle className="font-mono tracking-tight text-zinc-100">Real-time breach data analysis</CardTitle>
-                <CardDescription className="font-mono text-zinc-400">
-                  Analyze and enrich breach data in real-time
-                </CardDescription>
+                <h2 className="text-lg font-mono font-bold text-zinc-100">Breach Analysis</h2>
+                <p className="text-sm text-zinc-500 font-mono">Real-time breach detection and analysis</p>
               </div>
               <div className="flex items-center space-x-2">
                 <Button 
                   variant="outline" 
                   size="sm" 
                   className="font-mono border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 text-zinc-400"
+                  onClick={downloadCSV}
                 >
                   <FileDown className="mr-2 h-4 w-4" />
                   Export CSV
                 </Button>
-                <Sheet>
-                  <AdvancedFilters
-                    tempFilters={tempFilters}
-                    onFilterChange={setTempFilters}
-                    onApplyFilters={handleApplyFilters}
-                    onResetFilters={handleResetFilters}
-                  />
-                </Sheet>
+                <AdvancedFilters
+                  tempFilters={tempFilters}
+                  onFilterChange={setTempFilters}
+                  onApplyFilters={handleApplyFilters}
+                  onResetFilters={handleResetFilters}
+                />
                 <UploadDialog onUploadComplete={handleUploadComplete} />
               </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-sm font-mono text-zinc-400">Processing live breach data entries</span>
-                </div>
-                <span className="text-sm font-mono text-zinc-400">
-                  {totalEntries.toLocaleString()} entries analyzed
-                </span>
-              </div>
-
-              <div className="relative">
-                <ScrollArea className="h-[600px] rounded-md border border-zinc-800">
-                  <BreachTable entries={entries} />
-                </ScrollArea>
-
-                {hasMore && (
-                  <div className="absolute bottom-0 left-0 right-0 flex justify-center py-4 bg-gradient-to-t from-black/40 to-transparent">
-                    <Button
-                      variant="outline"
-                      onClick={loadMore}
-                      disabled={isLoading}
-                      className="font-mono border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 text-zinc-400"
-                    >
-                      {isLoading ? "Loading..." : "Load More"}
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </main>
+            </div>
+            <BreachTable 
+              entries={entries} 
+              isLoading={isLoading}
+              hasMore={hasMore}
+              onLoadMore={loadMore}
+            />
+          </div>
+        </Card>
       </div>
     </div>
   );

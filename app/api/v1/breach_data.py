@@ -5,6 +5,7 @@ import logging
 import json
 from starlette.websockets import WebSocketState
 import asyncio
+from datetime import datetime
 
 from app.models.database import get_db, BreachEntry
 from app.models.schemas import BreachEntryCreate, BreachEntry as BreachEntrySchema
@@ -24,14 +25,6 @@ async def websocket_endpoint(websocket: WebSocket):
     client_host = websocket.client.host
     logger.info(f"Client connecting from: {client_host}")
     
-    existing_connections = [conn for conn in active_connections 
-                          if conn.client.host == client_host]
-    
-    if existing_connections:
-        logger.info(f"Rejecting connection from {client_host} - already connected")
-        await websocket.close(code=1000, reason="Already connected")
-        return
-    
     try:
         await websocket.accept()
         logger.info(f"WebSocket connection accepted from {client_host}")
@@ -40,13 +33,33 @@ async def websocket_endpoint(websocket: WebSocket):
         try:
             while websocket.client_state == WebSocketState.CONNECTED:
                 try:
-                    data = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
+                    # Shorter timeout for more responsive connection management
+                    data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
                     logger.debug(f"Received WebSocket message from {client_host}: {data}")
+                    
+                    if data == "pong":
+                        continue
+                        
+                    # If we receive an entry ID, send the full entry data including breach info
+                    try:
+                        message = json.loads(data)
+                        if isinstance(message, dict) and 'id' in message:
+                            entry_id = message['id']
+                            db = get_db()
+                            try:
+                                entry = db.query(BreachEntry).filter(BreachEntry.id == entry_id).first()
+                                if entry:
+                                    await broadcast_breach_entry(entry)
+                            finally:
+                                db.close()
+                    except json.JSONDecodeError:
+                        pass
+                        
                 except asyncio.TimeoutError:
                     if websocket.client_state == WebSocketState.CONNECTED:
                         await websocket.send_text("ping")
                         logger.debug(f"Sent ping to {client_host}")
-                        
+                    
         except WebSocketDisconnect:
             logger.info(f"WebSocket connection closed by client: {client_host}")
         except Exception as e:
@@ -91,7 +104,15 @@ async def broadcast_breach_entry(entry: BreachEntry):
             "hasCaptcha": bool(entry.has_captcha),
             "hasMfa": bool(entry.has_mfa),
             "isSecure": bool(entry.is_secure),
-            "tags": tags
+            "tags": tags,
+            "breach_info": {
+                "is_breached": bool(entry.had_breach),
+                "total_breaches": entry.breach_count,
+                "total_pwned": entry.total_pwned,
+                "latest_breach": entry.latest_breach.isoformat() if entry.latest_breach else None,
+                "data_classes": entry.data_classes or [],
+                "breaches": entry.breach_details or []
+            }
         }
     }
     
@@ -116,30 +137,67 @@ async def create_breach_entry(
     entry: BreachEntryCreate,
     db: Session = Depends(get_db)
 ):
-    """Create a new breach entry"""
+    """Create a new breach entry and enrich it with additional data"""
     try:
-        async with DataEnrichmentService() as service:
-            enriched_data = await service.enrich_entry(entry.url)
-            
-        if not enriched_data:
-            raise HTTPException(status_code=400, detail="Failed to enrich entry data")
-            
+        # Create new entry
         db_entry = BreachEntry(
             url=entry.url,
             username=entry.username,
-            password=entry.password,
-            **enriched_data
+            password=entry.password
         )
-        
         db.add(db_entry)
         db.commit()
         db.refresh(db_entry)
         
-        return db_entry.to_dict()
-        
+        # Enrich the entry with additional data
+        async with DataEnrichmentService() as enrichment_service:
+            metadata = await enrichment_service.enrich_entry(entry.url)
+            
+            # Update the entry with enriched data
+            db_entry.domain = metadata.get('domain')
+            db_entry.ip_address = metadata.get('ip_address')
+            db_entry.port = metadata.get('port')
+            db_entry.path = metadata.get('path')
+            db_entry.page_title = metadata.get('page_title')
+            db_entry.service_type = metadata.get('service_type')
+            db_entry.has_captcha = 1 if metadata.get('hasCaptcha') else 0
+            db_entry.has_mfa = 1 if metadata.get('hasMfa') else 0
+            db_entry.is_secure = 1 if metadata.get('isSecure') else 0
+            db_entry.status_code = metadata.get('status')
+            db_entry.tags = metadata.get('tags', [])
+            
+            # Store breach data
+            breach_info = metadata.get('breach_info', {})
+            db_entry.had_breach = 1 if breach_info.get('is_breached') else 0
+            db_entry.breach_count = breach_info.get('total_breaches', 0)
+            db_entry.total_pwned = breach_info.get('total_pwned', 0)
+            
+            # Handle latest_breach date
+            if breach_info.get('latest_breach'):
+                try:
+                    if isinstance(breach_info['latest_breach'], str):
+                        # Try parsing ISO format first
+                        try:
+                            db_entry.latest_breach = datetime.fromisoformat(breach_info['latest_breach'])
+                        except ValueError:
+                            # If that fails, try parsing YYYY-MM-DD format
+                            db_entry.latest_breach = datetime.strptime(breach_info['latest_breach'], '%Y-%m-%d')
+                except Exception as e:
+                    logger.error(f"Error parsing breach date: {str(e)}")
+                    db_entry.latest_breach = None
+            
+            db_entry.data_classes = breach_info.get('data_classes', [])
+            db_entry.breach_details = breach_info.get('breaches', [])
+            
+            db.commit()
+            db.refresh(db_entry)
+            
+            return db_entry
+            
     except Exception as e:
+        db.rollback()
         logger.error(f"Error creating breach entry: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to create breach entry")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{entry_id}", response_model=BreachEntrySchema)
 async def get_breach_entry(entry_id: int, db: Session = Depends(get_db)):

@@ -7,6 +7,8 @@ RUN pip install -r requirements.txt
 
 COPY docker-entrypoint.sh .
 
-COPY app_test app_test
+COPY scripts scripts 
+
+COPY app app
 
 ENTRYPOINT ["./docker-entrypoint.sh"]

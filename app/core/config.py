@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     MYSQL_PORT: int = int(os.getenv("MYSQL_PORT", "3306"))
     
     GROQ_API_KEY: Optional[str] = os.getenv("GROQ_API_KEY")
+
+    # These will help with the broadcasting
+    MQTT_URL: str = os.getenv("MQTT_URL", "ssl://localhost:8080")
+    MQTT_USERNAME: str = os.getenv("MQTT_USERNAME", "admin")
+    MQTT_PASSWORD: str = os.getenv("MQTT_PASSWORD", "admin")
     
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> str:

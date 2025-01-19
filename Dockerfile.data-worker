@@ -1,0 +1,14 @@
+FROM python:3.13
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY data-enrichment-entrypoint.sh .
+
+ENV PYTHONUNBUFFERED=0
+
+COPY app/services/data_enrichment.py .
+
+ENTRYPOINT ["./data-enrichment-entrypoint.sh"]
