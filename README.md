@@ -13,7 +13,7 @@ A multimodal breach analysis platform that combines data processing, Groq AI ana
 
 - **AI-Powered Analysis**
 
-  - Groq AI integration (mixtral-8x7b-32768 model)
+  - Groq AI integration (llama 3.3)
   - Pattern recognition in passwords
   - Risk scoring (0.0-1.0)
   - Security insights generation
