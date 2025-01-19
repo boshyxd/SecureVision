@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
+from datetime import datetime
 
 class BreachEntryBase(BaseModel):
     url: str
@@ -13,8 +14,28 @@ class ParsedBreachEntry(BreachEntryBase):
     is_secure: bool
     line_number: int
 
-class BreachEntryCreate(BreachEntryBase):
-    pass
+class BreachEntryCreate(ParsedBreachEntry):
+    domain: Optional[str]
+    ip_address: Optional[str]
+    page_title: Optional[str]
+    
+    service_type: Optional[str]
+    
+    has_captcha: Optional[int]
+    has_mfa: Optional[int]
+    is_secure: Optional[int]
+    status_code: Optional[int]
+    
+    # Breach status fields
+    had_breach: int
+    breach_count: int
+    total_pwned: int
+    latest_breach: datetime | None
+    data_classes: Dict[str, Any]
+    breach_details: Dict[str, Any]
+    
+    tags: list[str]
+    extra_metadata: Dict[str, Any]
 
 class BreachEntry(BreachEntryBase):
     id: int

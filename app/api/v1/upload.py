@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, UploadFile, File, BackgroundTasks, HTTPException
 from sqlalchemy.orm import Session
 from app.models.database import get_db
+from app.gadgets.breach_entry_parsing import parse_breach_file
+from app.gadgets.breach_entry_relay import BreachEntryRelay
 from app.services.data_ingestion import process_breach_file
 from app.services.data_enrichment import DataEnrichmentService
 import tempfile
@@ -10,6 +12,8 @@ from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+# This is ABSOLUTELY not the best way of doing this but we ball
+relay = BreachEntryRelay()
 
 @router.post("/upload")
 async def upload_breach_data(
@@ -33,13 +37,14 @@ async def upload_breach_data(
             temp_path = temp_file.name
 
         try:
-            async with DataEnrichmentService() as service:
-                stats = await process_breach_file(temp_path, db, service)
+            # This is going to send the entry data to a scanner via MQTT
+            # Scanner will take care of the rest
+            stats = await parse_breach_file(temp_path, relay=relay)
                 
-            logger.info(f"File processing completed: {stats}")
+            logger.info(f"File processing initiated: {stats}")
             
             return {
-                "message": "File processing completed",
+                "message": "File processing initiated",
                 "filename": file.filename,
                 "stats": stats
             }

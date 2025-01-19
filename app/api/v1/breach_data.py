@@ -9,7 +9,7 @@ from datetime import datetime
 
 from app.models.database import get_db, BreachEntry
 from app.models.schemas import BreachEntryCreate, BreachEntry as BreachEntrySchema
-from app.services.data_enrichment import DataEnrichmentService
+from app.services.data_enrichment import DataEnrichmentService, DataEnrichmentResult, BreachData
 
 logger = logging.getLogger(__name__)
 
@@ -132,67 +132,60 @@ async def broadcast_breach_entry(entry: BreachEntry):
         if connection in active_connections:
             active_connections.remove(connection)
 
+# This endpoint is designed for the data ingestion workflow using MQTT workers.
 @router.post("/", response_model=BreachEntrySchema)
 async def create_breach_entry(
-    entry: BreachEntryCreate,
+    entry: DataEnrichmentResult,
     db: Session = Depends(get_db)
 ):
-    """Create a new breach entry and enrich it with additional data"""
+    """Create a new breach entry with enriched data"""
     try:
         # Create new entry
         db_entry = BreachEntry(
             url=entry.url,
             username=entry.username,
-            password=entry.password
+            password=entry.password,
+            domain=entry.domain,
+            ip_address=entry.ip_address,
+            port=entry.port,
+            path=entry.path,
+            page_title=entry.page_title,
+            service_type=entry.service_type,
         )
+        db_entry.has_captcha = 1 if entry.has_captcha else 0
+        db_entry.has_mfa = 1 if entry.has_mfa else 0
+        db_entry.is_secure = 1 if entry.is_secure else 0
+        db_entry.status_code = entry.status_code
+        db_entry.tags = entry.tags
+
+        breach_info = entry.breach_info
+        db_entry.had_breach = 1 if breach_info.get('is_breached') else 0
+        db_entry.breach_count = breach_info.get('total_breaches', 0)
+        db_entry.total_pwned = breach_info.get('total_pwned', 0)
+        
+        if breach_info.latest_breach:
+            try:
+                if isinstance(breach_info.latest_breach, str):
+                    # Try parsing ISO format first
+                    try:
+                        db_entry.latest_breach = datetime.fromisoformat(breach_info.latest_breach)
+                    except ValueError:
+                        # If that fails, try parsing YYYY-MM-DD format
+                        db_entry.latest_breach = datetime.strptime(breach_info.latest_breach, '%Y-%m-%d')
+                else:
+                    db_entry.latest_breach = breach_info.latest_breach
+            except Exception as e:
+                logger.error(f"Error parsing breach date: {str(e)}")
+                db_entry.latest_breach = None
+
+        db_entry.data_classes = breach_info.data_classes
+        db_entry.breach_details = breach_info.data_classes
+
         db.add(db_entry)
         db.commit()
         db.refresh(db_entry)
         
-        # Enrich the entry with additional data
-        async with DataEnrichmentService() as enrichment_service:
-            metadata = await enrichment_service.enrich_entry(entry.url)
-            
-            # Update the entry with enriched data
-            db_entry.domain = metadata.get('domain')
-            db_entry.ip_address = metadata.get('ip_address')
-            db_entry.port = metadata.get('port')
-            db_entry.path = metadata.get('path')
-            db_entry.page_title = metadata.get('page_title')
-            db_entry.service_type = metadata.get('service_type')
-            db_entry.has_captcha = 1 if metadata.get('hasCaptcha') else 0
-            db_entry.has_mfa = 1 if metadata.get('hasMfa') else 0
-            db_entry.is_secure = 1 if metadata.get('isSecure') else 0
-            db_entry.status_code = metadata.get('status')
-            db_entry.tags = metadata.get('tags', [])
-            
-            # Store breach data
-            breach_info = metadata.get('breach_info', {})
-            db_entry.had_breach = 1 if breach_info.get('is_breached') else 0
-            db_entry.breach_count = breach_info.get('total_breaches', 0)
-            db_entry.total_pwned = breach_info.get('total_pwned', 0)
-            
-            # Handle latest_breach date
-            if breach_info.get('latest_breach'):
-                try:
-                    if isinstance(breach_info['latest_breach'], str):
-                        # Try parsing ISO format first
-                        try:
-                            db_entry.latest_breach = datetime.fromisoformat(breach_info['latest_breach'])
-                        except ValueError:
-                            # If that fails, try parsing YYYY-MM-DD format
-                            db_entry.latest_breach = datetime.strptime(breach_info['latest_breach'], '%Y-%m-%d')
-                except Exception as e:
-                    logger.error(f"Error parsing breach date: {str(e)}")
-                    db_entry.latest_breach = None
-            
-            db_entry.data_classes = breach_info.get('data_classes', [])
-            db_entry.breach_details = breach_info.get('breaches', [])
-            
-            db.commit()
-            db.refresh(db_entry)
-            
-            return db_entry
+        return db_entry
             
     except Exception as e:
         db.rollback()
@@ -250,7 +243,7 @@ async def update_breach_entry(
         if not enriched_data:
             raise HTTPException(status_code=400, detail="Failed to enrich entry data")
             
-        for key, value in enriched_data.items():
+        for key, value in enriched_data.model_dump().items():
             setattr(db_entry, key, value)
             
         db_entry.url = entry_update.url
