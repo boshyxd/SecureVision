@@ -53,7 +53,7 @@ resource "docker_network" "securevision_network" {
 
 # API service
 resource "docker_image" "api" {
-  name = "securevision-api:latest"
+  name = var.api_image_name
 }
 
 resource "docker_container" "api" {
@@ -69,6 +69,9 @@ resource "docker_container" "api" {
     "MYSQL_PORT=${var.mysql_port}",
     "MYSQL_DB=${var.mysql_db}",
     "MYSQL_USER=${var.mysql_user}",
+    "MQTT_URL=${var.mqtt_url}",
+    "MQTT_USERNAME=${var.mqtt_username}",
+    "MQTT_PASSWORD=${var.mqtt_password}",
     "GROQ_API_KEY=${var.groq_api_key}",
     "SHODAN_API_KEY=${var.shodan_api_key}",
     "VIRUSTOTAL_API_KEY=${var.virustotal_api_key}",
@@ -80,19 +83,43 @@ resource "docker_container" "api" {
 
 # Frontend service
 resource "docker_image" "frontend" {
-  name = "securevision-client:latest"
+  name = var.client_image_name
 }
 
 resource "docker_container" "frontend" {
   name  = "securevision_client"
-  image = var.client_image_name
+  image = docker_image.frontend.image_id
   ports {
     internal = var.client_port
     external = var.client_port
   }
   env = [
-    "NEXT_PUBLIC_API_URL=http://${docker_container.api.name}:${var.api_port}/api/v1"
+    "NEXT_PUBLIC_API_URL=http://localhost:${var.api_port}/api/v1"
   ]
+  networks_advanced {
+    name = docker_network.securevision_network.name
+  }
+}
+
+# Data workers
+resource "docker_image" "data_worker" {
+  name = var.worker_image_name
+}
+
+resource "docker_container" "data_worker" {
+  count   = var.worker_nodes
+  name    = "securevision_data_worker_${count.index}"
+  image   = docker_image.data_worker.image_id
+  restart = "always"
+  env = [
+    "MQTT_URL=${var.mqtt_url}",
+    "MQTT_USERNAME=${var.mqtt_username}",
+    "MQTT_PASSWORD=${var.mqtt_password}",
+    "API_URL=http://${docker_container.api.name}:${var.api_port}/api/v1",
+    "SHODAN_API_KEY=${var.shodan_api_key}",
+    "VIRUSTOTAL_API_KEY=${var.virustotal_api_key}",
+  ]
+
   networks_advanced {
     name = docker_network.securevision_network.name
   }
