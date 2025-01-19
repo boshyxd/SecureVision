@@ -11,7 +11,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 
 interface UploadDialogProps {
@@ -21,10 +20,8 @@ interface UploadDialogProps {
 export function UploadDialog({ onUploadComplete }: UploadDialogProps) {
   const { toast } = useToast();
   const [isUploading, setIsUploading] = useState(false);
-  const [progress, setProgress] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const uploadTimeoutRef = useRef<NodeJS.Timeout>();
 
   const handleFileUpload = async (file: File) => {
     if (!file.name.endsWith('.txt')) {
@@ -37,17 +34,8 @@ export function UploadDialog({ onUploadComplete }: UploadDialogProps) {
     }
 
     setIsUploading(true);
-    setProgress(0);
-
-    const progressInterval = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 90) {
-          clearInterval(progressInterval);
-          return 90;
-        }
-        return prev + 10;
-      });
-    }, 200);
+    // Close dialog immediately when upload starts
+    setIsOpen(false);
 
     const formData = new FormData();
     formData.append('file', file);
@@ -64,27 +52,21 @@ export function UploadDialog({ onUploadComplete }: UploadDialogProps) {
 
       const result = await response.json();
       
-      setProgress(100);
+      // Show success toast
       toast({
         title: "Upload successful",
-        description: `Processing ${result.stats.total_lines} entries in the background...`,
+        description: `${file.name} was successfully uploaded and is now being processed.`,
+        variant: "default"
       });
 
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
 
-      uploadTimeoutRef.current = setTimeout(() => {
-        setIsOpen(false);
-        setIsUploading(false);
-        setProgress(0);
-        
-        setTimeout(() => {
-          if (onUploadComplete) {
-            onUploadComplete();
-          }
-        }, 2000);
-      }, 1500);
+      // Trigger the callback to start showing parsed entries
+      if (onUploadComplete) {
+        onUploadComplete();
+      }
 
     } catch (error) {
       console.error('Upload error:', error);
@@ -93,9 +75,8 @@ export function UploadDialog({ onUploadComplete }: UploadDialogProps) {
         description: error instanceof Error ? error.message : "An error occurred during upload",
         variant: "destructive"
       });
-      clearInterval(progressInterval);
+    } finally {
       setIsUploading(false);
-      setProgress(0);
     }
   };
 
@@ -116,12 +97,6 @@ export function UploadDialog({ onUploadComplete }: UploadDialogProps) {
 
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
-  };
-
-  const cleanup = () => {
-    if (uploadTimeoutRef.current) {
-      clearTimeout(uploadTimeoutRef.current);
-    }
   };
 
   return (
@@ -155,15 +130,13 @@ export function UploadDialog({ onUploadComplete }: UploadDialogProps) {
             accept=".txt"
             onChange={handleFileSelect}
             className="hidden"
+            disabled={isUploading}
           />
           
           {isUploading ? (
-            <div className="w-full space-y-4">
-              <Progress value={progress} className="h-2 bg-zinc-800" />
-              <p className="text-sm text-center font-mono text-zinc-400">
-                {progress === 100 ? "Processing..." : "Uploading..."}
-              </p>
-            </div>
+            <p className="text-sm text-center font-mono text-zinc-400">
+              Uploading...
+            </p>
           ) : (
             <>
               <p className="text-sm text-center font-mono text-zinc-400">

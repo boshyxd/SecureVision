@@ -9,7 +9,8 @@ export interface SearchFilters {
   pattern_type?: string;
   risk_score_min?: number;
   risk_score_max?: number;
-  tags?: string[];
+  include_tags?: string[];
+  exclude_tags?: string[];
   has_captcha?: boolean;
   has_mfa?: boolean;
   is_secure?: boolean;
