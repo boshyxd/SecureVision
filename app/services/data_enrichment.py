@@ -1,4 +1,5 @@
 import os
+import sys
 import aiohttp
 import logging
 from urllib.parse import urlparse
@@ -12,8 +13,25 @@ import re
 import asyncio
 import time
 import random
+import paho.mqtt.client as mqtt
+import json
+from dataclasses import dataclass
+from pydantic import BaseModel
+
+# This is to have the data enrichment thing be self contained
+class ParsedBreachEntry(BaseModel):
+    url: str
+    username: str
+    password: str    
+    hostname: str
+    path: str
+    port: int
+    is_secure: bool
+    line_number: int
 
 logger = logging.getLogger(__name__)
+handler = logging.StreamHandler(sys.stdout)
+logger.addHandler(handler)
 
 class DataEnrichmentService:
     def __init__(self):
@@ -678,3 +696,49 @@ class DataEnrichmentService:
             k: v for k, v in self.breach_cache.items() 
             if k in self.last_breach_check
         } 
+
+
+# TODO: Get this to a centralized config component, probably somewhere in core? But that would break the self-containment aspect
+@dataclass
+class WorkerConfig:
+    MQTT_URL: str = os.getenv("MQTT_URL", "ssl://localhost:8080")
+    MQTT_USERNAME: str = os.getenv("MQTT_USERNAME", "admin")
+    MQTT_PASSWORD: str = os.getenv("MQTT_PASSWORD", "admin")
+    API_URL: str = os.getenv("API_URL", "http://localhost:8000/api/v1")
+
+class DataEnrichmentWorker:
+    def __init__(self):
+        config = WorkerConfig()
+
+        parsed_mqtt_url = urlparse(config.MQTT_URL)
+
+        self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        self._client.on_connect = self._on_connect
+        self._client.on_message = self._on_message
+        self._client.username_pw_set(config.MQTT_USERNAME, config.MQTT_PASSWORD)
+        self._client.tls_set()
+        self._client.connect(parsed_mqtt_url.hostname, parsed_mqtt_url.port, 60)
+        self._client.loop_forever()
+
+    def _on_connect(self, client, userdata, flags, reason_code, properties=None):
+        logger.info("Connected with result code %s.", reason_code)
+        # Subscribe to all URL parse updates
+        client.subscribe("urls/parsed/#")
+
+    def _on_message(self, client, userdata, message):
+        try:
+            # Parse the JSON message
+            url_data = json.loads(message.payload.decode())
+            logger.info("Received batch: %s:", url_data['url'])
+            logger.info("Message payload: %s", message.payload)
+            # TODO: Send the URL data to the enrichment service
+            logger.info("-------------------")
+        except Exception as e:
+            logger.error("Error processing message: %s", str(e))
+
+def run_worker():
+    logger.info("STARTING WORKER.")
+    worker = DataEnrichmentWorker()
+
+if __name__ == "__main__":
+    run_worker()
