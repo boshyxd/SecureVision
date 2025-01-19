@@ -1,20 +1,23 @@
 "use client";
 
-import { Card } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useBreachSearch } from "@/hooks/useBreachSearch";
 import { BreachTable } from "@/components/breach-analysis/table/breach-table";
-import { Shield, AlertTriangle, Server, Network, Lock, Globe, FileDown } from "lucide-react";
+import { Shield, AlertTriangle, Server, Network, Lock, Globe, FileDown, CheckCircle } from "lucide-react";
 import { useMemo, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { AdvancedFilters } from "@/components/breach-analysis/filters/advanced-filters";
 import { UploadDialog } from "@/components/breach-analysis/layout/upload-dialog";
-import { SearchFilters } from "@/types";
+import { SearchFilters, BreachEntry } from "@/types";
+import { analyzeRisk } from "@/lib/groq";
+import { toast } from "@/components/ui/use-toast";
+import { motion, AnimatePresence } from "framer-motion";
+import { NumberScramble } from "@/components/ui/number-scramble";
 
 export default function Home() {
   const [tempFilters, setTempFilters] = useState<SearchFilters>({});
-  const { entries, isLoading, hasMore, loadMore, search } = useBreachSearch();
+  const { entries, isLoading, hasMore, loadMore, search, updateEntry } = useBreachSearch();
 
-  // Load initial data when component mounts
   useEffect(() => {
     search("", {});
   }, [search]);
@@ -29,7 +32,6 @@ export default function Home() {
   };
 
   const handleUploadComplete = () => {
-    // Refresh the data after successful upload
     search("", tempFilters);
   };
 
@@ -82,7 +84,6 @@ export default function Home() {
     document.body.removeChild(link);
   };
 
-  // Calculate real-time statistics
   const stats = useMemo(() => {
     const activeServices = entries.filter(entry => entry.metadata?.status === 200).length;
     const criticalEndpoints = entries.filter(entry => entry.risk_score >= 7).length;
@@ -112,149 +113,260 @@ export default function Home() {
     };
   }, [entries]);
 
+  const handleRiskAssessment = async (entry: BreachEntry) => {
+    try {
+      updateEntry({
+        ...entry,
+        isAssessing: true
+      });
+
+      const assessment = await analyzeRisk(entry);
+      
+      updateEntry({
+        ...entry,
+        risk_assessment: assessment,
+        isAssessing: false
+      });
+    } catch (error) {
+      console.error('Failed to assess risk:', error);
+      updateEntry({
+        ...entry,
+        isAssessing: false
+      });
+      toast({
+        title: "Error",
+        description: "Failed to analyze risk. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const container = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1
+      }
+    }
+  };
+
+  const item = {
+    hidden: { opacity: 0, y: 20 },
+    show: { opacity: 1, y: 0 }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-zinc-950">
-      <div className="p-6 space-y-6">
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <Card className="bg-black/40 border-zinc-800/50 backdrop-blur-sm group hover:border-emerald-500/20 transition-colors">
-            <div className="p-6">
-              <div className="flex items-start justify-between">
-                <div className="space-y-2">
-                  <div className="text-xs font-mono text-zinc-500 tracking-wider">ACTIVE SERVICES</div>
-                  <div className="text-2xl font-mono font-bold text-zinc-100">{stats.activeServices}</div>
+      <div className="p-6 space-y-6 max-w-[1920px] mx-auto w-full">
+        <motion.div 
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full"
+          variants={container}
+          initial="hidden"
+          animate="show"
+        >
+          <motion.div 
+            className="min-w-[400px]"
+            variants={item}
+          >
+            <Card className="bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-emerald-500/20">
+              <div className="p-6">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-2">
+                    <div className="text-xs font-mono text-muted-foreground tracking-wider">ACTIVE SERVICES</div>
+                    <div className="text-2xl font-mono font-bold text-foreground">
+                      <NumberScramble value={stats.activeServices} />
+                    </div>
+                  </div>
+                  <div className="rounded-lg bg-muted p-2">
+                    <Server className="h-4 w-4" />
+                  </div>
                 </div>
-                <div className="rounded-lg bg-emerald-500/10 p-2 group-hover:bg-emerald-500/20 transition-colors">
-                  <Server className="h-4 w-4 text-emerald-400" />
+                <div className="mt-4 text-sm text-muted-foreground font-mono">
+                  HTTP 200 Status
                 </div>
               </div>
-              <div className="mt-4 text-sm text-zinc-400 font-mono">
-                HTTP 200 Status
+            </Card>
+          </motion.div>
+
+          <motion.div 
+            className="min-w-[400px]"
+            variants={item}
+          >
+            <Card className="bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-emerald-500/20">
+              <div className="p-6">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-2">
+                    <div className="text-xs font-mono text-muted-foreground tracking-wider">BREACHED ENTRIES</div>
+                    <div className="text-2xl font-mono font-bold text-red-400">
+                      <NumberScramble 
+                        value={entries.filter(e => e.metadata.breach_info?.is_breached).length} 
+                        className="text-red-400"
+                      />
+                    </div>
+                  </div>
+                  <div className="rounded-lg bg-red-500/10 p-2">
+                    <AlertTriangle className="h-4 w-4 text-red-400" />
+                  </div>
+                </div>
+                <div className="mt-4 text-sm text-muted-foreground font-mono">
+                  Detected breaches
+                </div>
+              </div>
+            </Card>
+          </motion.div>
+
+          <motion.div 
+            className="min-w-[400px]"
+            variants={item}
+          >
+            <Card className="bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-emerald-500/20">
+              <div className="p-6">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-2">
+                    <div className="text-xs font-mono text-muted-foreground tracking-wider">SECURE ENTRIES</div>
+                    <div className="text-2xl font-mono font-bold text-emerald-400">
+                      <NumberScramble 
+                        value={entries.filter(e => !e.metadata.breach_info?.is_breached).length}
+                        className="text-emerald-400"
+                      />
+                    </div>
+                  </div>
+                  <div className="rounded-lg bg-emerald-500/10 p-2">
+                    <CheckCircle className="h-4 w-4" />
+                  </div>
+                </div>
+                <div className="mt-4 text-sm text-muted-foreground font-mono">
+                  Protected entries
+                </div>
+              </div>
+            </Card>
+          </motion.div>
+
+          <motion.div 
+            className="min-w-[400px]"
+            variants={item}
+          >
+            <Card className="bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-emerald-500/20">
+              <div className="p-6">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-2">
+                    <div className="text-xs font-mono text-muted-foreground tracking-wider">TOTAL DOMAINS</div>
+                    <div className="text-2xl font-mono font-bold text-foreground">
+                      <NumberScramble value={stats.totalDomains} />
+                    </div>
+                  </div>
+                  <div className="rounded-lg bg-muted p-2">
+                    <Globe className="h-4 w-4" />
+                  </div>
+                </div>
+                <div className="mt-4 text-sm text-muted-foreground font-mono">
+                  Unique domains analyzed
+                </div>
+              </div>
+            </Card>
+          </motion.div>
+
+          <motion.div 
+            className="min-w-[400px]"
+            variants={item}
+          >
+            <Card className="bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-emerald-500/20">
+              <div className="p-6">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-2">
+                    <div className="text-xs font-mono text-muted-foreground tracking-wider">NETWORK COVERAGE</div>
+                    <div className="text-2xl font-mono font-bold text-foreground">
+                      <NumberScramble 
+                        value={parseFloat(stats.networkCoverage)} 
+                        formatFn={(val) => `${val.toFixed(1)}%`}
+                      />
+                    </div>
+                  </div>
+                  <div className="rounded-lg bg-muted p-2">
+                    <Network className="h-4 w-4" />
+                  </div>
+                </div>
+                <div className="mt-4 text-sm text-muted-foreground font-mono">
+                  Protected endpoints
+                </div>
+              </div>
+            </Card>
+          </motion.div>
+
+          <motion.div 
+            className="min-w-[400px]"
+            variants={item}
+          >
+            <Card className="bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-emerald-500/20">
+              <div className="p-6">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-2">
+                    <div className="text-xs font-mono text-muted-foreground tracking-wider">PROTECTED SERVICES</div>
+                    <div className="text-2xl font-mono font-bold text-foreground">
+                      <NumberScramble value={stats.securedEndpoints} />
+                    </div>
+                  </div>
+                  <div className="rounded-lg bg-muted p-2">
+                    <Lock className="h-4 w-4" />
+                  </div>
+                </div>
+                <div className="mt-4 text-sm text-muted-foreground font-mono">
+                  HTTPS, MFA, or CAPTCHA enabled
+                </div>
+              </div>
+            </Card>
+          </motion.div>
+        </motion.div>
+
+        {/* Breach Analysis Card */}
+        <motion.div 
+          className="w-full min-w-0"
+          layout
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.2 }}
+        >
+          <Card className="bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-emerald-500/20">
+            <div className="p-8">
+              <div className="flex items-center justify-between mb-8">
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-lg font-mono font-bold text-zinc-100 truncate">Breach Analysis</h2>
+                  <p className="text-sm text-zinc-500 font-mono truncate">Real-time breach detection and analysis</p>
+                </div>
+                <div className="flex items-center gap-4 flex-shrink-0 ml-4">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="font-mono border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 text-zinc-400 whitespace-nowrap"
+                    onClick={downloadCSV}
+                  >
+                    <FileDown className="mr-2 h-4 w-4" />
+                    Export CSV
+                  </Button>
+                  <AdvancedFilters
+                    tempFilters={tempFilters}
+                    onFilterChange={setTempFilters}
+                    onApplyFilters={handleApplyFilters}
+                    onResetFilters={handleResetFilters}
+                  />
+                  <UploadDialog onUploadComplete={handleUploadComplete} />
+                </div>
+              </div>
+              <div className="w-full min-w-0 overflow-x-auto">
+                <div className="min-w-full">
+                  <BreachTable
+                    entries={entries}
+                    isLoading={isLoading}
+                    hasMore={hasMore}
+                    onLoadMore={loadMore}
+                    onAssessRisk={handleRiskAssessment}
+                  />
+                </div>
               </div>
             </div>
           </Card>
-
-          <Card className="bg-black/40 border-zinc-800/50 backdrop-blur-sm group hover:border-red-500/20 transition-colors">
-            <div className="p-6">
-              <div className="flex items-start justify-between">
-                <div className="space-y-2">
-                  <div className="text-xs font-mono text-zinc-500 tracking-wider">CRITICAL ENDPOINTS</div>
-                  <div className="text-2xl font-mono font-bold text-zinc-100">{stats.criticalEndpoints}</div>
-                </div>
-                <div className="rounded-lg bg-red-500/10 p-2 group-hover:bg-red-500/20 transition-colors">
-                  <AlertTriangle className="h-4 w-4 text-red-400" />
-                </div>
-              </div>
-              <div className="mt-4 text-sm text-zinc-400 font-mono">
-                Risk Score ≥ 7
-              </div>
-            </div>
-          </Card>
-
-          <Card className="bg-black/40 border-zinc-800/50 backdrop-blur-sm group hover:border-blue-500/20 transition-colors">
-            <div className="p-6">
-              <div className="flex items-start justify-between">
-                <div className="space-y-2">
-                  <div className="text-xs font-mono text-zinc-500 tracking-wider">NETWORK COVERAGE</div>
-                  <div className="text-2xl font-mono font-bold text-zinc-100">{stats.networkCoverage}%</div>
-                </div>
-                <div className="rounded-lg bg-blue-500/10 p-2 group-hover:bg-blue-500/20 transition-colors">
-                  <Network className="h-4 w-4 text-blue-400" />
-                </div>
-              </div>
-              <div className="mt-4 text-sm text-zinc-400 font-mono">
-                Of total endpoints
-              </div>
-            </div>
-          </Card>
-
-          <Card className="bg-black/40 border-zinc-800/50 backdrop-blur-sm group hover:border-purple-500/20 transition-colors">
-            <div className="p-6">
-              <div className="flex items-start justify-between">
-                <div className="space-y-2">
-                  <div className="text-xs font-mono text-zinc-500 tracking-wider">DOMAINS MONITORED</div>
-                  <div className="text-2xl font-mono font-bold text-zinc-100">{stats.totalDomains}</div>
-                </div>
-                <div className="rounded-lg bg-purple-500/10 p-2 group-hover:bg-purple-500/20 transition-colors">
-                  <Globe className="h-4 w-4 text-purple-400" />
-                </div>
-              </div>
-              <div className="mt-4 text-sm text-zinc-400 font-mono">
-                Unique domains
-              </div>
-            </div>
-          </Card>
-
-          <Card className="bg-black/40 border-zinc-800/50 backdrop-blur-sm group hover:border-yellow-500/20 transition-colors">
-            <div className="p-6">
-              <div className="flex items-start justify-between">
-                <div className="space-y-2">
-                  <div className="text-xs font-mono text-zinc-500 tracking-wider">AVERAGE RISK SCORE</div>
-                  <div className="text-2xl font-mono font-bold text-zinc-100">{stats.averageRiskScore}</div>
-                </div>
-                <div className="rounded-lg bg-yellow-500/10 p-2 group-hover:bg-yellow-500/20 transition-colors">
-                  <Shield className="h-4 w-4 text-yellow-400" />
-                </div>
-              </div>
-              <div className="mt-4 text-sm text-zinc-400 font-mono">
-                Across all endpoints
-              </div>
-            </div>
-          </Card>
-
-          <Card className="bg-black/40 border-zinc-800/50 backdrop-blur-sm group hover:border-indigo-500/20 transition-colors">
-            <div className="p-6">
-              <div className="flex items-start justify-between">
-                <div className="space-y-2">
-                  <div className="text-xs font-mono text-zinc-500 tracking-wider">SECURED ENDPOINTS</div>
-                  <div className="text-2xl font-mono font-bold text-zinc-100">{stats.securedPercentage}%</div>
-                </div>
-                <div className="rounded-lg bg-indigo-500/10 p-2 group-hover:bg-indigo-500/20 transition-colors">
-                  <Lock className="h-4 w-4 text-indigo-400" />
-                </div>
-              </div>
-              <div className="mt-4 text-sm text-zinc-400 font-mono">
-                HTTPS, MFA, or CAPTCHA
-              </div>
-            </div>
-          </Card>
-        </div>
-
-        {/* Breach Table */}
-        <Card className="bg-black/40 border-zinc-800/50 backdrop-blur-sm">
-          <div className="p-6">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-lg font-mono font-bold text-zinc-100">Breach Analysis</h2>
-                <p className="text-sm text-zinc-500 font-mono">Real-time breach detection and analysis</p>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  className="font-mono border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 text-zinc-400"
-                  onClick={downloadCSV}
-                >
-                  <FileDown className="mr-2 h-4 w-4" />
-                  Export CSV
-                </Button>
-                <AdvancedFilters
-                  tempFilters={tempFilters}
-                  onFilterChange={setTempFilters}
-                  onApplyFilters={handleApplyFilters}
-                  onResetFilters={handleResetFilters}
-                />
-                <UploadDialog onUploadComplete={handleUploadComplete} />
-              </div>
-            </div>
-            <BreachTable 
-              entries={entries} 
-              isLoading={isLoading}
-              hasMore={hasMore}
-              onLoadMore={loadMore}
-            />
-          </div>
-        </Card>
+        </motion.div>
       </div>
     </div>
   );

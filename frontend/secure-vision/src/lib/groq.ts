@@ -59,7 +59,31 @@ Provide a JSON response with:
     }
 
     const data = await response.json();
-    return JSON.parse(data.choices[0].message.content);
+    if (!data.choices || !data.choices[0] || !data.choices[0].message || !data.choices[0].message.content) {
+      throw new Error('Invalid response format from Groq API');
+    }
+
+    const content = data.choices[0].message.content;
+    let parsedContent;
+    try {
+      parsedContent = JSON.parse(content);
+    } catch (e) {
+      console.error('Failed to parse Groq response:', content);
+      throw new Error('Invalid JSON response from Groq API');
+    }
+
+    // Validate the response format
+    if (!parsedContent.risk_level || !parsedContent.risk_score || !parsedContent.analysis) {
+      throw new Error('Missing required fields in Groq response');
+    }
+
+    return {
+      risk_level: parsedContent.risk_level,
+      risk_score: parsedContent.risk_score,
+      analysis: parsedContent.analysis,
+      recommendations: parsedContent.recommendations || [],
+      factors: parsedContent.factors || []
+    };
   } catch (error) {
     console.error('Error analyzing risk:', error);
     throw error;
