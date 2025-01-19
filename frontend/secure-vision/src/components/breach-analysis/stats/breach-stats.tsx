@@ -1,22 +1,46 @@
 "use client";
 
+import { useEffect, useState } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { BreachEntry } from "@/types";
 import { AlertTriangle, Globe, Network, Shield, Server, XCircle } from "lucide-react";
+import { getBreachStats } from '@/services/api';
 
 interface BreachStatsProps {
   entries: BreachEntry[];
 }
 
+interface Stats {
+  criticalEndpoints: number;
+  activeServices: number;
+  exposedAdminPaths: number;
+  vulnerableServices: number;
+  unprotectedEndpoints: number;
+  unreachableServices: number;
+}
+
 export function BreachStats({ entries }: BreachStatsProps) {
-  const stats = {
-    criticalEndpoints: 2134,
-    activeServices: 15678,
-    exposedAdminPaths: 432,
-    vulnerableServices: 867,
-    unprotectedEndpoints: 1243,
-    unreachableServices: 342
-  };
+  const [stats, setStats] = useState<Stats>({
+    criticalEndpoints: 0,
+    activeServices: 0,
+    exposedAdminPaths: 0,
+    vulnerableServices: 0,
+    unprotectedEndpoints: 0,
+    unreachableServices: 0
+  });
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const newStats = await getBreachStats();
+        setStats(newStats);
+      } catch (error) {
+        console.error('Failed to fetch stats:', error);
+      }
+    };
+
+    fetchStats();
+  }, []);
 
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

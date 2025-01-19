@@ -1,17 +1,21 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.core.config import settings
-from app.models.database import Base, engine
+import logging
+from app.api.v1 import breach_data, search, upload
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
+logging.getLogger('sqlalchemy').setLevel(logging.ERROR)
+logging.getLogger('sqlalchemy.engine').disabled = True
+logging.getLogger('sqlalchemy.pool').disabled = True
+logging.getLogger('sqlalchemy.dialects').disabled = True
+logging.getLogger('sqlalchemy.orm').disabled = True
 
-app = FastAPI(
-    title=settings.PROJECT_NAME,
-    version=settings.VERSION
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s: %(message)s'
 )
 
-# Configure CORS
+app = FastAPI()
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,14 +24,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy"}
+app.include_router(breach_data.router, prefix="/api/v1/breach-data")
+app.include_router(search.router, prefix="/api/v1/search")
+app.include_router(upload.router, prefix="/api/v1/upload")
 
-# TODO: Import and include routers
-# from app.api.v1 import breach_data, search
-# app.include_router(breach_data.router)
-# app.include_router(search.router)
+@app.get("/")
+async def root():
+    return {
+        "message": "SecureVision API is running",
+        "docs_url": "/docs",
+        "redoc_url": "/redoc"
+    }
 
 if __name__ == "__main__":
     import uvicorn

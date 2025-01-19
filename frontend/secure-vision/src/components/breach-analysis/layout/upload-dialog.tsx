@@ -1,6 +1,8 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
+import { useState, useRef } from "react";
+import { Upload } from "lucide-react";
+import { useToast } from "@/components/ui/use-toast";
 import {
   Dialog,
   DialogContent,
@@ -10,51 +12,171 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
-import { Upload } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface UploadDialogProps {
-  isUploading?: boolean;
-  progress?: number;
+  onUploadComplete?: () => void;
 }
 
-export function UploadDialog({ isUploading = false, progress = 0 }: UploadDialogProps) {
+export function UploadDialog({ onUploadComplete }: UploadDialogProps) {
+  const { toast } = useToast();
+  const [isUploading, setIsUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [isOpen, setIsOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadTimeoutRef = useRef<NodeJS.Timeout>();
+
+  const handleFileUpload = async (file: File) => {
+    if (!file.name.endsWith('.txt')) {
+      toast({
+        title: "Invalid file type",
+        description: "Please upload a .txt file",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsUploading(true);
+    setProgress(0);
+
+    const progressInterval = setInterval(() => {
+      setProgress(prev => {
+        if (prev >= 90) {
+          clearInterval(progressInterval);
+          return 90;
+        }
+        return prev + 10;
+      });
+    }, 200);
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await fetch('http://localhost:8000/api/v1/upload/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Upload failed: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      
+      setProgress(100);
+      toast({
+        title: "Upload successful",
+        description: `Processing ${result.stats.total_lines} entries in the background...`,
+      });
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+
+      uploadTimeoutRef.current = setTimeout(() => {
+        setIsOpen(false);
+        setIsUploading(false);
+        setProgress(0);
+        
+        setTimeout(() => {
+          if (onUploadComplete) {
+            onUploadComplete();
+          }
+        }, 2000);
+      }, 1500);
+
+    } catch (error) {
+      console.error('Upload error:', error);
+      toast({
+        title: "Upload failed",
+        description: error instanceof Error ? error.message : "An error occurred during upload",
+        variant: "destructive"
+      });
+      clearInterval(progressInterval);
+      setIsUploading(false);
+      setProgress(0);
+    }
+  };
+
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      handleFileUpload(file);
+    }
+  };
+
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const file = event.dataTransfer.files[0];
+    if (file) {
+      handleFileUpload(file);
+    }
+  };
+
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+  };
+
+  const cleanup = () => {
+    if (uploadTimeoutRef.current) {
+      clearTimeout(uploadTimeoutRef.current);
+    }
+  };
+
   return (
-    <Dialog>
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="icon" className="border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 text-zinc-400">
-          <Upload className="h-4 w-4 text-zinc-400" />
+        <Button
+          variant="outline"
+          size="sm"
+          className="font-mono border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 text-zinc-400"
+        >
+          <Upload className="mr-2 h-4 w-4" />
+          Upload Data
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[425px] bg-zinc-950 border-zinc-800">
+      <DialogContent className="bg-zinc-950/95 border-zinc-800">
         <DialogHeader>
-          <DialogTitle className="font-mono text-zinc-100">Upload Breach Data</DialogTitle>
+          <DialogTitle className="font-mono">Upload Breach Data</DialogTitle>
           <DialogDescription className="font-mono text-zinc-400">
-            Upload a text file containing breach data for analysis.
+            Upload a text file containing breach data in the format: url:username:password
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 py-4">
-          <div className="rounded-lg border-2 border-dashed border-zinc-800 p-6 text-center bg-black/40">
-            <div className="mx-auto flex max-w-[420px] flex-col items-center justify-center">
-              <Upload className="h-10 w-10 text-zinc-400 mb-4" />
-              <h3 className="font-mono text-zinc-100 mt-2">Drag and drop your file</h3>
-              <p className="text-sm font-mono text-zinc-400 mt-1">
-                Or click to select a file to upload
+
+        <div
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          className="flex flex-col items-center justify-center p-8 gap-4 border-2 border-dashed border-zinc-800 rounded-lg hover:border-zinc-700 transition-colors"
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".txt"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+          
+          {isUploading ? (
+            <div className="w-full space-y-4">
+              <Progress value={progress} className="h-2 bg-zinc-800" />
+              <p className="text-sm text-center font-mono text-zinc-400">
+                {progress === 100 ? "Processing..." : "Uploading..."}
               </p>
-              <Button variant="outline" className="mt-4 font-mono border-zinc-800 bg-black/40 hover:bg-black/60 hover:text-zinc-100 text-zinc-400">
+            </div>
+          ) : (
+            <>
+              <p className="text-sm text-center font-mono text-zinc-400">
+                Drag and drop your file here, or click to select
+              </p>
+              <Button
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                className="font-mono border-zinc-800 bg-black/40 hover:bg-black/60"
+              >
                 Select File
               </Button>
-            </div>
-          </div>
-          {isUploading && (
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm font-mono">
-                <span className="text-zinc-400">Processing entries...</span>
-                <span className="text-zinc-100">{progress}%</span>
-              </div>
-              <Progress value={progress} className="h-1.5 bg-zinc-800">
-                <div className="h-1.5 bg-blue-500/90 transition-all" style={{ width: `${progress}%` }} />
-              </Progress>
-            </div>
+            </>
           )}
         </div>
       </DialogContent>
