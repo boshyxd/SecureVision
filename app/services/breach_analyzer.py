@@ -19,6 +19,7 @@ async def analyze_breach_data(entry_id: int):
     # TODO: Implement breach analysis and update breach_metadata
     pass
 
+
 def ransomware_history(search_term):
     base_url = "https://api.ransomware.live/v2/searchvictims"
     url = f"{base_url}/{search_term}"
@@ -64,3 +65,44 @@ def ransomware_history(search_term):
     else:
         print("No matches found.")
         return []
+
+
+def github_ransomwatch(search_term):
+    url = "https://raw.githubusercontent.com/joshhighet/ransomwatch/main/posts.json"
+
+    print(f"Fetching data from: {url}")
+
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+        else:
+            print(f"Error: {response.status_code}")
+            return []
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return []
+
+    def fuzzy_filter(data, search_term, threshold=70):
+        results = []
+        for entry in data:
+            post_title = entry.get("post_title", "")
+            similarity = fuzz.ratio(post_title.lower(), search_term.lower())
+            if similarity >= threshold:
+                results.append({
+                    "post_title": post_title,
+                    "group_name": entry.get("group_name", ""),
+                    "discovered": entry.get("discovered", ""),
+                    "similarity": similarity
+                })
+        return results
+
+    threshold = 70
+    filtered_results = fuzzy_filter(data, search_term, threshold)
+
+    if filtered_results:
+        return filtered_results
+    else:
+        print("No matches found.")
+        return []
+
