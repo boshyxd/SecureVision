@@ -81,9 +81,9 @@ export function BreachTable({ entries }: BreachTableProps) {
               </TableCell>
               <TableCell>
                 <div className="flex gap-1">
-                  {securityFeatures.map((feature, i) => (
+                  {securityFeatures.map((feature) => (
                     <Badge 
-                      key={i}
+                      key={`${entry.id}-${feature}`}
                       variant="outline" 
                       className="bg-emerald-950/30 border-emerald-800 text-emerald-400"
                     >
@@ -94,7 +94,7 @@ export function BreachTable({ entries }: BreachTableProps) {
               </TableCell>
               <TableCell>
                 <div className="flex gap-1 flex-wrap">
-                  {entry.metadata.tags?.map((tag: string, i: number) => {
+                  {entry.metadata.tags?.map((tag: string) => {
                     let className = "bg-black/40 border-zinc-700 text-zinc-300";
                     if (tag === 'unresolved') className = "bg-red-950/30 border-red-800 text-red-400";
                     if (tag === 'parked') className = "bg-amber-950/30 border-amber-800 text-amber-400";
@@ -102,7 +102,7 @@ export function BreachTable({ entries }: BreachTableProps) {
                     
                     return (
                       <Badge 
-                        key={i} 
+                        key={`${entry.id}-${tag}`}
                         variant="outline" 
                         className={className}
                       >

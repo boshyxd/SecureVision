@@ -48,6 +48,10 @@ class BreachEntry(Base):
     username = Column(String(255), nullable=False)
     password = Column(String(255), nullable=False)
     
+    # Risk assessment fields
+    risk_score = Column(Float, default=0.5)
+    pattern_type = Column(String(50), default='unknown')
+    
     domain = Column(String(255), index=True)
     ip_address = Column(String(45), index=True)
     port = Column(Integer)
@@ -78,6 +82,8 @@ class BreachEntry(Base):
             "url": self.url,
             "username": self.username,
             "password": self.password,
+            "risk_score": float(self.risk_score) if self.risk_score is not None else 0.5,
+            "pattern_type": self.pattern_type or 'unknown',
             "metadata": {
                 "domain": self.domain,
                 "ip_address": self.ip_address,

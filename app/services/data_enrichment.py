@@ -9,6 +9,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 import shodan
 import re
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -16,24 +17,25 @@ class DataEnrichmentService:
     def __init__(self):
         self.shodan_api_key = os.getenv('SHODAN_API_KEY')
         self.shodan_api = shodan.Shodan(self.shodan_api_key) if self.shodan_api_key else None
-        self.session = None
+        self.session = aiohttp.ClientSession()
         self.breach_cache = {}
         self.last_breach_check = {}
 
     async def __aenter__(self):
-        self.session = aiohttp.ClientSession()
+        if not self.session or self.session.closed:
+            self.session = aiohttp.ClientSession()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.session:
+        if self.session and not self.session.closed:
             await self.session.close()
 
-    async def enrich_entry(self, url: str) -> Dict[str, Any]:
-        """Enrich a breach entry with additional data"""
+    async def enrich_entry(self, url: str, websocket_manager=None, entry_id: str = None) -> Dict[str, Any]:
+        """Enrich a breach entry with additional data and send real-time updates"""
         try:
             parsed = urlparse(url)
             domain = parsed.netloc.split(':')[0]
-            path = parsed.path
+            path = parsed.path or '/'
             port = parsed.port or (443 if parsed.scheme == 'https' else 80)
             is_secure = parsed.scheme == 'https'
             
@@ -43,25 +45,50 @@ class DataEnrichmentService:
             else:
                 tags.append('http')
             
+            # Send initial status
+            if websocket_manager and entry_id:
+                await websocket_manager.broadcast_update({
+                    'type': 'enrichment_update',
+                    'entry_id': entry_id,
+                    'status': 'processing',
+                    'current_step': 'initial_analysis',
+                    'data': {'tags': tags, 'is_secure': is_secure}
+                })
+            
             if self._is_local_ip(domain):
                 tags.append('local-ip')
-                return {
+                result = {
                     'domain': domain,
                     'ip_address': None,
                     'port': port,
                     'path': path,
                     'service_type': None,
-                    'has_captcha': False,
-                    'has_mfa': False,
-                    'is_secure': is_secure,
+                    'has_captcha': 0,
+                    'has_mfa': 0,
+                    'is_secure': 1 if is_secure else 0,
                     'status_code': None,
                     'tags': tags,
                     'extra_metadata': {'dns_resolution': 'local'}
                 }
+                if websocket_manager and entry_id:
+                    await websocket_manager.broadcast_update({
+                        'type': 'enrichment_update',
+                        'entry_id': entry_id,
+                        'status': 'completed',
+                        'data': result
+                    })
+                return result
 
             service_type = self._detect_service_type(url, path)
             if service_type:
                 tags.append(f'service-{service_type}')
+                if websocket_manager and entry_id:
+                    await websocket_manager.broadcast_update({
+                        'type': 'enrichment_update',
+                        'entry_id': entry_id,
+                        'current_step': 'service_detection',
+                        'data': {'service_type': service_type, 'tags': tags}
+                    })
 
             if not re.match(r'^https?://', url):
                 return None
@@ -75,40 +102,87 @@ class DataEnrichmentService:
                 "service_type": service_type,
                 "has_captcha": 0,
                 "has_mfa": 0,
-                "is_secure": is_secure,
+                "is_secure": 1 if is_secure else 0,
                 "status_code": None,
                 "tags": tags,
                 "extra_metadata": {}
             }
 
-            ip_data = await self._resolve_domain(domain)
-            if ip_data:
-                enriched_data.update(ip_data)
+            try:
+                ip_data = await self._resolve_domain(domain)
+                if ip_data:
+                    enriched_data.update(ip_data)
+                    if ip_data.get('tags'):
+                        enriched_data['tags'].extend(ip_data['tags'])
+                    if websocket_manager and entry_id:
+                        await websocket_manager.broadcast_update({
+                            'type': 'enrichment_update',
+                            'entry_id': entry_id,
+                            'current_step': 'dns_resolution',
+                            'data': {'ip_address': ip_data.get('ip_address'), 'tags': enriched_data['tags']}
+                        })
+            except Exception as e:
+                logger.error(f"Error resolving domain {domain}: {str(e)}")
 
-            if self.shodan_api and enriched_data["ip_address"]:
-                shodan_data = await self._get_shodan_data(enriched_data["ip_address"])
-                if shodan_data:
-                    enriched_data["extra_metadata"]["shodan"] = shodan_data
-                    
-                    if "http" in shodan_data.get("modules", []):
-                        for port in shodan_data.get("ports", []):
-                            if port == enriched_data["port"]:
-                                enriched_data["service_type"] = self._detect_service_type(
-                                    shodan_data, enriched_data["path"]
-                                )
-                                break
+            try:
+                if self.shodan_api and enriched_data.get("ip_address"):
+                    shodan_data = await self._get_shodan_data(enriched_data["ip_address"])
+                    if shodan_data:
+                        enriched_data["extra_metadata"]["shodan"] = shodan_data
+                        if websocket_manager and entry_id:
+                            await websocket_manager.broadcast_update({
+                                'type': 'enrichment_update',
+                                'entry_id': entry_id,
+                                'current_step': 'shodan_analysis',
+                                'data': {'extra_metadata': enriched_data["extra_metadata"]}
+                            })
+            except Exception as e:
+                logger.error(f"Error getting Shodan data: {str(e)}")
 
-            url_data = await self._check_url_accessibility(url)
-            if url_data:
-                enriched_data.update(url_data)
+            try:
+                url_data = await self._check_url_accessibility(url)
+                if url_data:
+                    enriched_data.update(url_data)
+                    if url_data.get('tags'):
+                        enriched_data['tags'].extend(url_data['tags'])
+            except Exception as e:
+                logger.error(f"Error checking URL accessibility: {str(e)}")
 
-            enriched_data["tags"] = self._process_tags(enriched_data)
+            # Ensure tags is a list and contains unique values
+            enriched_data["tags"] = list(set(enriched_data.get("tags", [])))
+            
+            # Convert boolean values to integers for database storage
+            enriched_data["has_captcha"] = 1 if enriched_data.get("has_captcha") else 0
+            enriched_data["has_mfa"] = 1 if enriched_data.get("has_mfa") else 0
+            enriched_data["is_secure"] = 1 if enriched_data.get("is_secure") else 0
+            
+            # Send final update
+            if websocket_manager and entry_id:
+                await websocket_manager.broadcast_update({
+                    'type': 'enrichment_update',
+                    'entry_id': entry_id,
+                    'status': 'completed',
+                    'data': enriched_data
+                })
             
             return enriched_data
             
         except Exception as e:
             logger.error(f"Error enriching entry for URL {url}: {str(e)}")
-            return {}
+            return {
+                "domain": domain,
+                "ip_address": None,
+                "port": port,
+                "path": path,
+                "page_title": None,
+                "service_type": None,
+                "has_captcha": 0,
+                "has_mfa": 0,
+                "is_secure": 1 if is_secure else 0,
+                "status_code": None,
+                "tags": tags,
+                "extra_metadata": {"error": str(e)}
+            }
 
     async def _resolve_domain(self, domain: str) -> Dict[str, Any]:
         """Resolve domain to IP address"""
@@ -182,9 +256,9 @@ class DataEnrichmentService:
     async def _check_url_accessibility(self, url: str) -> Dict[str, Any]:
         """Check if URL is accessible and get page title"""
         try:
-            async with self.session.get(url, timeout=10, allow_redirects=True) as response:
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with self.session.get(url, timeout=timeout, allow_redirects=True, verify_ssl=False) as response:
                 status = response.status
-                text = await response.text()
                 
                 result = {
                     "status_code": status,
@@ -193,21 +267,25 @@ class DataEnrichmentService:
                 
                 if status == 200:
                     result["tags"].append("active")
-                    title = self._extract_title(text)
-                    if title:
-                        result["page_title"] = title
-                        
-                    if self._has_login_form(text):
-                        result["tags"].append("login-form")
-                        
-                        if self._has_captcha(text):
-                            result["has_captcha"] = 1
-                        if self._has_mfa(text):
-                            result["has_mfa"] = 1
+                    try:
+                        text = await response.text()
+                        title = self._extract_title(text)
+                        if title:
+                            result["page_title"] = title
                             
-                        service_type = self._detect_service_type_from_content(text, url)
-                        if service_type:
-                            result["service_type"] = service_type
+                        if self._has_login_form(text):
+                            result["tags"].append("login-form")
+                            
+                            if self._has_captcha(text):
+                                result["has_captcha"] = 1
+                            if self._has_mfa(text):
+                                result["has_mfa"] = 1
+                                
+                            service_type = self._detect_service_type_from_content(text, url)
+                            if service_type:
+                                result["service_type"] = service_type
+                    except Exception as e:
+                        logger.error(f"Error processing response content for {url}: {str(e)}")
                             
                 elif status == 404:
                     result["tags"].append("not-found")
@@ -216,14 +294,20 @@ class DataEnrichmentService:
                     
                 return result
                 
-        except aiohttp.ClientError:
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            logger.warning(f"Connection error for {url}: {str(e)}")
             return {
                 "status_code": None,
-                "tags": ["unreachable"]
+                "tags": ["unreachable"],
+                "extra_metadata": {"error": str(e)}
             }
         except Exception as e:
             logger.error(f"Error checking URL accessibility for {url}: {str(e)}")
-            return {}
+            return {
+                "status_code": None,
+                "tags": ["error"],
+                "extra_metadata": {"error": str(e)}
+            }
 
     def _is_non_routable_ip(self, ip: str) -> bool:
         """Check if IP is non-routable"""

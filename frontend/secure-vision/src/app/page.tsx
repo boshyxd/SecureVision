@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { BreachTable } from "@/components/breach-analysis/table/breach-table";
@@ -37,11 +37,9 @@ import { Badge } from "@/components/ui/badge";
 
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [tempFilters, setTempFilters] = useState<SearchFilters>({});
-  const [activeFilters, setActiveFilters] = useState<SearchFilters>({});
   const [activeSearchType, setActiveSearchType] = useState<'domain' | 'application' | 'port' | 'path'>('domain');
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [activeFilters, setActiveFilters] = useState<SearchFilters>({});
+  const [tempFilters, setTempFilters] = useState<SearchFilters>({});
 
   const {
     entries,
@@ -52,6 +50,10 @@ export default function Home() {
     loadMore
   } = useBreachSearch();
 
+  useEffect(() => {
+    search("", {});
+  }, [search]);
+
   const handleApplyFilters = () => {
     setActiveFilters(tempFilters);
     search(searchQuery, tempFilters);
@@ -61,6 +63,11 @@ export default function Home() {
     setTempFilters({});
     setActiveFilters({});
     search(searchQuery, {});
+  };
+
+  const handleUploadComplete = () => {
+    // Refresh the data after successful upload
+    search(searchQuery, activeFilters);
   };
 
   return (
@@ -117,7 +124,7 @@ export default function Home() {
                 >
                   <Globe className="mr-2 h-4 w-4 text-emerald-500 group-hover:text-emerald-400" />
                   <span className="font-mono">Public URLs</span>
-                  <Badge variant="outline" className="ml-auto font-mono border-emerald-900 bg-emerald-950/30 text-zinc-100">1.8k</Badge>
+                  <Badge variant="outline" className="ml-auto font-mono border-emerald-900 bg-emerald-950/30 text-zinc-100">{totalEntries.toLocaleString()}</Badge>
                 </Button>
                 <Button 
                   variant="outline" 
@@ -126,7 +133,7 @@ export default function Home() {
                 >
                   <XCircle className="mr-2 h-4 w-4 text-zinc-500 group-hover:text-zinc-400" />
                   <span className="font-mono">Invalid URLs</span>
-                  <Badge variant="outline" className="ml-auto font-mono border-zinc-800 bg-black/40 text-zinc-300">342</Badge>
+                  <Badge variant="outline" className="ml-auto font-mono border-zinc-800 bg-black/40 text-zinc-300">{totalEntries.toLocaleString()}</Badge>
                 </Button>
               </div>
             </div>
@@ -146,7 +153,7 @@ export default function Home() {
                 >
                   <Globe className="mr-2 h-4 w-4 text-blue-500 group-hover:text-blue-400" />
                   <span className="font-mono">Remote Access</span>
-                  <Badge variant="outline" className="ml-auto font-mono border-zinc-800 bg-black/40 text-zinc-300">1.2k</Badge>
+                  <Badge variant="outline" className="ml-auto font-mono border-zinc-800 bg-black/40 text-zinc-300">{totalEntries.toLocaleString()}</Badge>
                 </Button>
                 <Button 
                   variant="outline" 
@@ -155,7 +162,7 @@ export default function Home() {
                 >
                   <Server className="mr-2 h-4 w-4 text-purple-500 group-hover:text-purple-400" />
                   <span className="font-mono">Cloud Services</span>
-                  <Badge variant="outline" className="ml-auto font-mono border-zinc-800 bg-black/40 text-zinc-300">856</Badge>
+                  <Badge variant="outline" className="ml-auto font-mono border-zinc-800 bg-black/40 text-zinc-300">{totalEntries.toLocaleString()}</Badge>
                 </Button>
                 <Button 
                   variant="outline" 
@@ -164,7 +171,7 @@ export default function Home() {
                 >
                   <Network className="mr-2 h-4 w-4 text-emerald-500 group-hover:text-emerald-400" />
                   <span className="font-mono">Network Infrastructure</span>
-                  <Badge variant="outline" className="ml-auto font-mono border-zinc-800 bg-black/40 text-zinc-300">432</Badge>
+                  <Badge variant="outline" className="ml-auto font-mono border-zinc-800 bg-black/40 text-zinc-300">{totalEntries.toLocaleString()}</Badge>
                 </Button>
                 <Button 
                   variant="outline" 
@@ -173,7 +180,7 @@ export default function Home() {
                 >
                   <Shield className="mr-2 h-4 w-4 text-amber-500 group-hover:text-amber-400" />
                   <span className="font-mono">Security Systems</span>
-                  <Badge variant="outline" className="ml-auto font-mono border-zinc-800 bg-black/40 text-zinc-300">245</Badge>
+                  <Badge variant="outline" className="ml-auto font-mono border-zinc-800 bg-black/40 text-zinc-300">{totalEntries.toLocaleString()}</Badge>
                 </Button>
                 <Button 
                   variant="outline" 
@@ -182,7 +189,7 @@ export default function Home() {
                 >
                   <Globe className="mr-2 h-4 w-4 text-red-500 group-hover:text-red-400" />
                   <span className="font-mono">Critical Infrastructure</span>
-                  <Badge variant="outline" className="ml-auto font-mono border-zinc-800 bg-black/40 text-zinc-300">167</Badge>
+                  <Badge variant="outline" className="ml-auto font-mono border-zinc-800 bg-black/40 text-zinc-300">{totalEntries.toLocaleString()}</Badge>
                 </Button>
               </div>
             </div>
@@ -266,10 +273,7 @@ export default function Home() {
                     onResetFilters={handleResetFilters}
                   />
                 </Sheet>
-                <UploadDialog 
-                  isUploading={isUploading}
-                  progress={uploadProgress}
-                />
+                <UploadDialog onUploadComplete={handleUploadComplete} />
               </div>
             </CardHeader>
             <CardContent className="space-y-4">

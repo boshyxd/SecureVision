@@ -1,0 +1,11 @@
+https://panelist.cint.com:testuser1:password123
+https://login.live.com/ppsecure/post.srf:user2@live.com:pass456
+https://m.facebook.com:fb_user:fb_pass123
+https://www.webcheats.com.br:gamer123:game456
+https://wallhere.com:art_lover:creative789
+https://login.proboards.com:forum_user:discuss123
+https://users.nexusmods.com/auth/sign_up:mod_creator:modding456
+https://secure.confused.com:confused_user:clarity789
+https://www.ecigmafia.com/login.php:vaper123:cloud456
+https://discord.com:discord_user:chat789
+https://app.clickup.com:project_manager:tasks123 
