@@ -6,6 +6,13 @@ class BreachEntryBase(BaseModel):
     username: str
     password: str
 
+class ParsedBreachEntry(BreachEntryBase):    
+    hostname: str
+    path: str
+    port: int
+    is_secure: bool
+    line_number: int
+
 class BreachEntryCreate(BreachEntryBase):
     pass
 
