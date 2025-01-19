@@ -1,10 +1,10 @@
 from groq import Groq
-# from app.core.config import settings
-# from app.models.database import SessionLocal, BreachEntry
+from app.core.config import settings
+from app.models.database import SessionLocal, BreachEntry
 from rapidfuzz import fuzz, process
 import requests
 
-# client = Groq(api_key=settings.GROQ_API_KEY)
+client = Groq(api_key=settings.GROQ_API_KEY)
 
 async def analyze_password_with_groq(password: str) -> dict:
     """Analyze password using Groq AI"""
