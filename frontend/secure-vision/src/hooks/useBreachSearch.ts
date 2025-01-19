@@ -172,6 +172,7 @@ export function useBreachSearch({
 
   const updateEntriesFromMap = useCallback(() => {
     console.log('Updating entries from map, current size:', entriesMapRef.current.size);
+    console.log('Current filters:', currentFilters);
     const entriesList = Array.from(entriesMapRef.current.values())
       .filter(entry => searchResultsRef.current.size === 0 || searchResultsRef.current.has(entry.id))
       .filter(entry => {
@@ -180,15 +181,7 @@ export function useBreachSearch({
                entry.username?.toLowerCase().includes(currentQuery.toLowerCase()) ||
                entry.domain?.toLowerCase().includes(currentQuery.toLowerCase());
       })
-      .filter(entry => {
-        for (const [key, value] of Object.entries(currentFilters)) {
-          if (value === undefined) continue;
-          if (Array.isArray(value)) {
-            if (value.length > 0 && !value.includes(entry[key])) return false;
-          } else if (entry[key] !== value) return false;
-        }
-        return true;
-      })
+      .filter(entry => matchesFilters(entry, currentFilters))
       .sort((a, b) => {
         const aTime = a.timestamp ? new Date(a.timestamp).getTime() : 0;
         const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0;
@@ -385,17 +378,24 @@ export function useBreachSearch({
     setCurrentFilters(filters);
     setCurrentPage(1);
     
+    console.log('Performing search with filters:', filters);
+    
     try {
       const response = await searchBreachData(query, filters);
       const entries = response.entries || [];
       
       searchResultsRef.current = new Set(entries.map(entry => entry.id));
+      entriesMapRef.current.clear(); // Clear existing entries
       
       entries.forEach(entry => {
         entriesMapRef.current.set(entry.id, entry);
       });
       
-      setEntries(entries);
+      // Apply filters to the entries
+      const filteredEntries = entries.filter(entry => matchesFilters(entry, filters));
+      console.log('Filtered entries:', filteredEntries.length, 'out of', entries.length);
+      
+      setEntries(filteredEntries);
       setTotalEntries(response.total || entries.length);
       setHasMore(response.has_more || false);
     } catch (error) {
@@ -457,6 +457,10 @@ const matchesFilters = (entry: BreachEntry, filters: SearchFilters): boolean => 
     } else if (key === 'application' && Array.isArray(value) && value.length > 0) {
       const serviceType = entry.metadata?.service_type?.toLowerCase();
       if (!serviceType || !value.some(app => serviceType.includes(app.toLowerCase()))) return false;
+    } else if (key === 'include_tags' && Array.isArray(value) && value.length > 0) {
+      if (!entry.metadata?.tags?.some(tag => value.includes(tag))) return false;
+    } else if (key === 'exclude_tags' && Array.isArray(value) && value.length > 0) {
+      if (entry.metadata?.tags?.some(tag => value.includes(tag))) return false;
     }
   }
   return true;

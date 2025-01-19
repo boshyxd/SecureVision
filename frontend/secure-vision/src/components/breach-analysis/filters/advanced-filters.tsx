@@ -131,6 +131,28 @@ export function AdvancedFilters({
             </div>
             <Separator className="bg-zinc-800/50" />
             <div className="space-y-4">
+              <Label className="text-xs font-mono text-zinc-300">Tag Filters</Label>
+              <div>
+                <Label className="text-sm font-mono text-zinc-400">Include Tags</Label>
+                <Input 
+                  value={tempFilters.include_tags?.join(', ') || ''}
+                  onChange={(e) => handleFilterChange('include_tags', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                  placeholder="e.g., login-form, captcha, active" 
+                  className="font-mono bg-black/40 border-zinc-800 text-zinc-100 placeholder:text-zinc-500"
+                />
+              </div>
+              <div>
+                <Label className="text-sm font-mono text-zinc-400">Exclude Tags</Label>
+                <Input 
+                  value={tempFilters.exclude_tags?.join(', ') || ''}
+                  onChange={(e) => handleFilterChange('exclude_tags', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                  placeholder="e.g., parked, local-ip" 
+                  className="font-mono bg-black/40 border-zinc-800 text-zinc-100 placeholder:text-zinc-500"
+                />
+              </div>
+            </div>
+            <Separator className="bg-zinc-800/50" />
+            <div className="space-y-4">
               <Label className="text-xs font-mono text-zinc-300">Risk Score Range</Label>
               <div className="grid grid-cols-2 gap-4">
                 <div>

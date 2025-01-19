@@ -87,7 +87,7 @@ export default function RootLayout({
                     </p>
                   </div>
                   <Badge variant="outline" className="bg-emerald-500/5 text-emerald-400 border-emerald-500/20 font-mono text-[10px]">
-                    ENTERPRISE EDITION
+                    uOttaHacks 2025
                   </Badge>
                 </div>
                 <div className="space-y-4 px-3">

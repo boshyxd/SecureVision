@@ -50,6 +50,12 @@ export async function searchBreachData(
   if (filters.risk_score_max !== undefined) {
     searchParams.append('risk_score_max', filters.risk_score_max.toString());
   }
+  if (filters.include_tags?.length) {
+    filters.include_tags.forEach(tag => searchParams.append('include_tags', tag));
+  }
+  if (filters.exclude_tags?.length) {
+    filters.exclude_tags.forEach(tag => searchParams.append('exclude_tags', tag));
+  }
 
   console.log('Fetching with filters:', filters);
   console.log('Search URL:', `${API_BASE_URL}/search?${searchParams.toString()}`);
