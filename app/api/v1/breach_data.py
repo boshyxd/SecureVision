@@ -133,7 +133,7 @@ async def broadcast_breach_entry(entry: BreachEntry):
             active_connections.remove(connection)
 
 # This endpoint is designed for the data ingestion workflow using MQTT workers.
-@router.post("/", response_model=BreachEntrySchema)
+@router.post("/")
 async def create_breach_entry(
     entry: DataEnrichmentResult,
     db: Session = Depends(get_db)
@@ -159,9 +159,9 @@ async def create_breach_entry(
         db_entry.tags = entry.tags
 
         breach_info = entry.breach_info
-        db_entry.had_breach = 1 if breach_info.get('is_breached') else 0
-        db_entry.breach_count = breach_info.get('total_breaches', 0)
-        db_entry.total_pwned = breach_info.get('total_pwned', 0)
+        db_entry.had_breach = 1 if breach_info.had_breach else 0
+        db_entry.breach_count = breach_info.breach_count if breach_info.breach_count else 0
+        db_entry.total_pwned = breach_info.total_pwned if breach_info.total_pwned else 0
         
         if breach_info.latest_breach:
             try:

@@ -75,6 +75,7 @@ resource "docker_container" "api" {
     "GROQ_API_KEY=${var.groq_api_key}",
     "SHODAN_API_KEY=${var.shodan_api_key}",
     "VIRUSTOTAL_API_KEY=${var.virustotal_api_key}",
+    "WORKERS=${var.worker_nodes}",
   ]
   networks_advanced {
     name = docker_network.securevision_network.name
@@ -117,6 +118,7 @@ resource "docker_container" "data_worker" {
     "API_URL=http://${docker_container.api.name}:${var.api_port}/api/v1",
     "SHODAN_API_KEY=${var.shodan_api_key}",
     "VIRUSTOTAL_API_KEY=${var.virustotal_api_key}",
+    "WORKER_INDEX=${count.index}",
   ]
 
   networks_advanced {

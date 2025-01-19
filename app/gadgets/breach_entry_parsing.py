@@ -72,7 +72,7 @@ async def parse_breach_file(file_path: str, relay: BreachEntryRelay) -> Dict[str
             entry = process_line(line, index, stats)
             if entry is None:
                 continue
-            relay.broadcast(entry)
+            relay.broadcast(entry, index)
             # Whatever else
         return stats
     except Exception as e:

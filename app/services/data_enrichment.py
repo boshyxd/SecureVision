@@ -2,7 +2,7 @@ import os
 import sys
 import aiohttp
 import logging
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 import socket
 import dns.resolver
 import dns.exception
@@ -61,6 +61,7 @@ class DataEnrichmentResult(BaseModel):
 
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 handler = logging.StreamHandler(sys.stdout)
 logger.addHandler(handler)
 
@@ -113,7 +114,7 @@ class DataEnrichmentService:
                 total_pwned=breach_info_data.get("total_pwned", 0),
                 latest_breach=breach_info_data.get("latest_breach"),
                 data_classes=breach_info_data.get("data_classes", []),
-                breaches=breach_info_data.get("breaches", [])
+                breach_details=breach_info_data.get("breaches", []),
             )
 
             result = DataEnrichmentResult(
@@ -121,14 +122,21 @@ class DataEnrichmentService:
                 username=username,
                 password=password,
                 domain=hostname,
+                ip_address=None,
                 path=path,
                 port=port,
+                page_title=None,
+                service_type=None,
+                status_code=None,
                 has_captcha=False,
                 has_mfa=False,
                 is_secure=is_secure,
-                tags=breach_info_data.get('tags',[]), # add any breach tags out the gate
-                breach_info=breach_info
+                tags=breach_info_data.get(
+                    "tags", []
+                ),  # add any breach tags out the gate
+                breach_info=breach_info,
             )
+
             # Add protocol tag
             result.tags.append("https" if is_secure else "http")
 
@@ -193,9 +201,9 @@ class DataEnrichmentService:
                 url_data = await self._check_url_accessibility(url)
                 if url_data:
                     result.status_code = url_data.get("status_code")
-                    result.page_title = url_data.get("page_title"),
-                    result.has_captcha = url_data.get('has_captcha'),
-                    result.has_mfa = url_data.get('has_mfa')
+                    result.page_title = url_data.get("page_title")
+                    result.has_captcha = bool(url_data.get("has_captcha"))
+                    result.has_mfa = bool(url_data.get("has_mfa"))
                     if url_data.get("tags"):
                         result.tags.extend(url_data["tags"])
                     if websocket_manager and entry_id:
@@ -232,6 +240,7 @@ class DataEnrichmentService:
 
         except Exception as e:
             logger.error(f"Error enriching entry for URL {url}: {str(e)}")
+            logger.error(e)
             return result
 
     async def _resolve_domain(self, domain: str) -> Dict[str, Any]:
@@ -386,7 +395,7 @@ class DataEnrichmentService:
                 r"<title>(.*?)</title>", html, re.IGNORECASE | re.DOTALL
             )
             if title_match:
-                return title_match.group(1).strip()
+                return " ".join(title_match.group(1).strip())
         except Exception:
             pass
         return None
@@ -667,7 +676,7 @@ class DataEnrichmentService:
                                 ]
                             )
 
-                        domain_breaches = list(
+                        domain_breacher = list(
                             {b["Name"]: b for b in domain_breaches}.values()
                         )
 
@@ -740,8 +749,6 @@ class DataEnrichmentService:
 
                 self.breach_cache[domain] = breach_info
                 self.last_breach_check[domain] = now
-
-                logger.info(f"Final breach info for {domain}: {breach_info}")
                 return breach_info
 
         except Exception as e:
@@ -768,11 +775,16 @@ class WorkerConfig:
     MQTT_USERNAME: str = os.getenv("MQTT_USERNAME", "admin")
     MQTT_PASSWORD: str = os.getenv("MQTT_PASSWORD", "admin")
     API_URL: str = os.getenv("API_URL", "http://localhost:8000/api/v1")
+    WORKER_INDEX: int = int(os.getenv("WORKER_INDEX", "0"))
 
 
 class DataEnrichmentWorker:
     def __init__(self):
         config = WorkerConfig()
+
+        self._worker_index = config.WORKER_INDEX
+
+        logger.info("Worker %s", self._worker_index)
 
         parsed_mqtt_url = urlparse(config.MQTT_URL)
         self.api_url = config.API_URL
@@ -792,13 +804,18 @@ class DataEnrichmentWorker:
 
     async def _create_entry(self, data: DataEnrichmentResult):
         async with aiohttp.ClientSession() as session:
-            async with session.post(self.api_url, json=data.model_dump()) as response:
+            async with session.post(
+                urljoin(self.api_url, "/api/v1/breach-data"), json=data.model_dump()
+            ) as response:
+                logger.info("Request body: %s", data.model_dump())
                 logger.info("Breach Entry POST Status: %s", response.status)
+                logger.info("Breach Entry Response Test: %s", await response.text())
+                logger.info("JSON: %s", await response.json())
 
     def _on_connect(self, client, userdata, flags, reason_code, properties=None):
         logger.info("Connected with result code %s.", reason_code)
         # Subscribe to all URL parse updates
-        client.subscribe("urls/parsed/#")
+        client.subscribe(f"urls/parsed/{self._worker_index}")
 
     def _on_message(self, client, userdata, message):
         try:

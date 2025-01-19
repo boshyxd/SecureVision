@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     MQTT_USERNAME: str = os.getenv("MQTT_USERNAME", "admin")
     MQTT_PASSWORD: str = os.getenv("MQTT_PASSWORD", "admin")
     
+    WORKERS: int = int(os.getenv("WORKERS", "1"))
+    
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> str:
         return f"mysql+mysqlconnector://{self.MYSQL_USER}:{self.MYSQL_PASSWORD}@{self.MYSQL_HOST}:{self.MYSQL_PORT}/{self.MYSQL_DB}"

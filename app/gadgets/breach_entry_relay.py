@@ -16,13 +16,12 @@ class BreachEntryRelay:
         self._client.tls_set()
         self._client.connect(parsed_mqtt_url.hostname, parsed_mqtt_url.port, 60)
         self._client.loop_start()
+        self._num_workers = settings.WORKERS
 
     def _on_connect(self, client, userdata, flags, reason_code, properties=None):
         print(f"Connected with result code {reason_code}")
 
-    def broadcast(self, entry: ParsedBreachEntry):
-        url = entry.url
-        encoded_url = url.encode()
-        hex_url = (binascii.hexlify(encoded_url).decode(),)
-        self._client.publish(f"urls/parsed/{hex_url}", entry.json())
-        print(f"Published {url} to queue.")
+    def broadcast(self, entry: ParsedBreachEntry, index: int):
+        queue_index = index % self._num_workers
+        self._client.publish(f"urls/parsed/{queue_index}", entry.model_dump_json())
+        print(f"Published URL to queue {queue_index}.")
