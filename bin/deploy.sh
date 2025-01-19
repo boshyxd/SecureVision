@@ -9,5 +9,4 @@ dotenv run terraform -chdir=terraform fmt
 dotenv run terraform -chdir=terraform validate && \
     dotenv run terraform -chdir=terraform plan && \
     dotenv run terraform -chdir=terraform apply
-docker logs -f securevision_api > app_logs/api.log & \
-    docker logs -f securevision_client > app_logs/client.log
+docker logs -f securevision_data_worker_0
